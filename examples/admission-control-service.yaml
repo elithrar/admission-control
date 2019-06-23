@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admission-control
+  labels:
+    app: admission-control
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: admission-control
+  template:
+    metadata:
+      labels:
+        app: admission-control
+    spec:
+      containers:
+        - name: admission-controld
+          image: gcr.io/optimum-rock-145719/admissiond:latest
+          command: ["/admissiond"]
+          env:
+            - name: HOSTNAME
+              value: "admissiond.questionable.services"
+          args:
+            [
+              "-host",
+              "$(HOSTNAME)",
+              "-cert-path",
+              "/certs/tls.crt",
+              "-key-path",
+              "/certs/tls.key",
+            ]
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              name: server-tls-port
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128M"
+            limits:
+              cpu: "250m"
+              memory: "256M"
+          volumeMounts:
+            - name: certs
+              mountPath: "/certs"
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: admissiond-tls-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admission-control-service
+spec:
+  selector:
+    app: admission-control
+  ports:
+    - port: 443 # Service's port
+      protocol: TCP
+      targetPort: server-tls-port

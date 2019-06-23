@@ -1,0 +1,11 @@
+{
+  "hosts": [
+    "admission-control-service.default.svc",
+    "admission-control-service.default.svc.cluster.local"
+  ],
+  "CN": "admission-control-service.default.svc",
+  "key": {
+    "algo": "ecdsa",
+    "size": 256
+  }
+}
