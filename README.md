@@ -129,4 +129,4 @@ implementation.
 
 ## License
 
-Apache 2.0 licensed. See the LICENSE file for details.
+Apache 2.0 licensed. Copyright Google, LLC (2019). See the LICENSE file for details.
