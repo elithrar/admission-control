@@ -50,9 +50,8 @@ func main() {
 
 	admissions := r.PathPrefix("/admission-control").Subrouter()
 	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
-		AdmitFunc:  admissioncontrol.DenyPublicServices,
-		Logger:     logger,
-		LimitBytes: 1024 * 1024 * 1024, // 1MB,
+		AdmitFunc: admissioncontrol.DenyPublicServices,
+		Logger:    logger,
 	}).Methods(http.MethodPost)
 
 	// TLS & HTTP server setup
