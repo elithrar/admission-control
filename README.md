@@ -1,4 +1,4 @@
-# admission-control
+# Admission Control 🕵️
 
 [![GoDoc](https://godoc.org/github.com/elithrar/admission-control?status.svg)](https://godoc.org/github.com/elithrar/admission-control)
 [![CircleCI](https://circleci.com/gh/elithrar/admission-control.svg?style=svg)](https://circleci.com/gh/elithrar/admission-control)
@@ -34,6 +34,8 @@ To install the admission-control server (`admissiond`) into your cluster, along 
 
 > Note: Admission webhooks must support HTTPS and listen on tcp/443 - the Kubernetes API server will _only_ make requests to your webhook over HTTPS. Having your k8s cluster create a TLS certificate for you will dramatically simplify the configuration, as self-signed certificates require you to provide a `.webhooks.clientConfig.caBundle` value for verification.
 
+---
+
 ### Generating TLS Certificates
 
 As noted above, we need to make our webhook endpoint available over HTTPS (TLS), which requires generating a CA cert (required as the `caBundle` value), key and certificate. You can can choose to [have your k8s cluster sign & provide a cert](https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/#create-a-certificate-signing-request) for you, or otherwise provide your own self-signed cert & CA cert.
@@ -47,7 +49,31 @@ As noted above, we need to make our webhook endpoint available over HTTPS (TLS),
 kubectl config view --raw --minify --flatten -o jsonpath='{.clusters[].cluster.certificate-authority-data}'
 ```
 
+Specifically, you'll want to make sure your manifest looks like this:
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: deny-public-services
+webhooks:
+  - name: deny-public-services.questionable.services
+    # <snip, for brevity>
+    clientConfig:
+      service:
+        # This is the hostname our certificate needs in its Subject Alternative
+        # Name array - name.namespace.svc
+        name: admission-control-service
+        namespace: default
+        path: "/admission-control/deny-public-services"
+      # This will be the CA cert from your k8s cluster, or the CA cert you
+      # generated if you took the DIY approach.
+      caBundle: "<your-base64-encoded-PEM-certificate-here>
+```
+
 With the TLS certificates in hand, you can now move on to deploying the controller.
+
+---
 
 ### Deploying the Admission Controller
 
@@ -70,15 +96,7 @@ docker tag yourco/admissiond gcr.io/$PROJECTNAME/admissiond
 docker push gcr.io/$PROJECTNAME/admissiond
 ```
 
-We'll also need to make our TLS key-pair available as a Secret:
-
-```sh
-# The certificate you retrieved from kubectl csr get ... and the PEM-encoded
-# key created alongside the CSR.
-kubectl create secret tls admissiond-tls-certs --cert=server.crt --key=server-key.pem
-```
-
-Make sure to update/copy `examples/admission-control-service.yaml` with the new container image URL, and then:
+Make sure to update/copy `examples/admission-control-service.yaml` with the new container image URL before deploying it:
 
 ```sh
 # An example Deployment we'll try to expose
@@ -101,7 +119,28 @@ You should see the following output:
 Error from server (hello-service does not have the cloud.google.com/load-balancer-type: Internal annotation.): error when creating "examples/public-service.yaml": admission webhook "deny-public-services.questionable.services" denied the request: Services of type: LoadBalancer without an internal annotation are not allowed on this cluster
 ```
 
-## Troubleshooting
+Perfect! 🎉
+
+### Extending Things
+
+The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple.
+
+You can then pass pass the `AdmissionHandler` to your favorite HTTP router, and define a path that the function is avaiable on:
+
+```go
+	r := mux.NewRouter().StrictSlash(true)
+	admissions := r.PathPrefix("/admission-control").Subrouter()
+	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
+		AdmitFunc:  admissioncontrol.DenyPublicServices,
+		Logger:     logger,
+    }).Methods(http.MethodPost)
+```
+
+The built-in server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/cmd/admissiond) provides an example of how to serve your admission controller endpoints.
+
+---
+
+### Troubleshooting
 
 If you run into problems setting up the admission-controller, make sure that:
 
