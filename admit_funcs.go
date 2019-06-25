@@ -61,31 +61,47 @@ func DenyPublicServices(admissionReview *admission.AdmissionReview) (*admission.
 // 		allowed := false
 //
 // 		kind := admissionReview.Request.Kind.Kind
-// 		name := admissionReview.Request.Name
+// 		// name := admissionReview.Request.Name
 // 		resp := &admission.AdmissionResponse{
 // 			Allowed: allowed,
 // 		}
 //
 // 		if kind == "Pod" {
 // 			pod := core.Pod{}
-// 			if err := json.Unmarshal(admissionReview.Request.Object.Raw, pod); err != nil {
+// 			if err := json.Unmarshal(admissionReview.Request.Object.Raw, &pod); err != nil {
 // 				return nil, err
 // 			}
 //
 // 			annotations := pod.ObjectMeta.Annotations
+// 			missing := map[string]string{}
 // 			for requiredKey, requiredVal := range requiredAnnotations {
-// 				if actualVal, ok := annotations[requiredKey]; ok {
-// 					if actualVal != requiredVal {
-// 						return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
+// 				if meta.HasAnnotation(pod.ObjectMeta, requiredKey) {
+// 					if annotations[requiredKey] != requiredVal {
+// 						resp.Allowed = false
+// 						// Required value does not match
+// 						// Add to "missing" list to report back on
 // 					}
-// 				} else {
-// 					return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
+// 					// Has key & matching value
 // 				}
+// 				// does not have key at all
+// 				// add to "missing" list to report back on
 // 			}
 //
-// 			allowed = true
+// 			if len(missing) == 0 {
+// 				resp.Allowed = true
+// 			}
+//
+// 			// for requiredKey, requiredVal := range requiredAnnotations {
+// 			// 	if actualVal, ok := annotations[requiredKey]; ok {
+// 			// 		if actualVal != requiredVal {
+// 			// 			return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
+// 			// 		}
+// 			// 	} else {
+// 			// 		return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
+// 			// 	}
+// 			// }
 // 		} else {
-// 			allowed = true
+// 			resp.Allowed = true
 // 		}
 //
 // 		return resp, nil
@@ -93,3 +109,4 @@ func DenyPublicServices(admissionReview *admission.AdmissionReview) (*admission.
 //
 // 	return admitFunc
 // }
+//
