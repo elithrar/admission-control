@@ -7,6 +7,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// TestDenyPublicServices checks that the correct kind, type & annotation combinations are valid for the AdmitFunc.
 func TestDenyPublicServices(t *testing.T) {
 	var denyTests = []struct {
 		testName        string
@@ -26,9 +27,6 @@ func TestDenyPublicServices(t *testing.T) {
 			expectedMessage: "Ingress objects cannot be deployed to this cluster",
 			shouldAllow:     false,
 		},
-		// TODO(silverlock): Fix the rawObject parts of these tests - need to determine how we can provide a raw k8s object.
-		// Similar tests here: https://github.com/kubernetes/apimachinery/blob/961b39a1baa06f6c52bdd048a809b9f5b47f1337/pkg/test/apis_meta_v1_unstructed_unstructure_test.go#L451
-		//
 		{
 			testName: "Reject Public Service",
 			kind: meta.GroupVersionKind{
