@@ -47,14 +47,14 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ah.LimitBytes = 1024 * 1024 * 1024 // 1MB
 	}
 
-	review := &admission.AdmissionReview{
+	outgoingReview := &admission.AdmissionReview{
 		Response: &admission.AdmissionResponse{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := ah.handleAdmissionRequest(w, r); err != nil {
-		review.Response.Allowed = false
-		review.Response.Result = &meta.Status{
+		outgoingReview.Response.Allowed = false
+		outgoingReview.Response.Result = &meta.Status{
 			Message: err.Error(),
 		}
 
@@ -64,10 +64,10 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"msg", admissionErr.Message,
 				"debug", admissionErr.Debug,
 			)
-			review.Response.Allowed = admissionErr.Allowed
+			outgoingReview.Response.Allowed = admissionErr.Allowed
 		}
 
-		res, err := json.Marshal(review)
+		res, err := json.Marshal(outgoingReview)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			ah.Logger.Log(

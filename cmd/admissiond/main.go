@@ -4,16 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"fmt"
+	"github.com/gorilla/mux"
+	stdlog "log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	admissioncontrol "github.com/elithrar/admission-control"
 	log "github.com/go-kit/kit/log"
-	"github.com/gorilla/mux"
 )
 
 type conf struct {
@@ -37,9 +35,18 @@ func main() {
 	// Set up logging
 	var logger log.Logger
 	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
+	stdlog.SetOutput(log.NewStdlibAdapter(logger))
 	logger = log.With(logger, "ts", log.DefaultTimestampUTC, "loc", log.DefaultCaller)
 
-	// Set up which
+	// TLS configuration
+	keyPair, err := tls.LoadX509KeyPair(conf.TLSCertPath, conf.TLSKeyPath)
+	if err != nil {
+		fatal(logger, err)
+	}
+	tlsConf := &tls.Config{
+		Certificates: []tls.Certificate{keyPair},
+		ServerName:   conf.Host,
+	}
 
 	// Set up the routes & logging middleware.
 	r := mux.NewRouter().StrictSlash(true)
@@ -54,16 +61,7 @@ func main() {
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
-	// TLS & HTTP server setup
-	keyPair, err := tls.LoadX509KeyPair(conf.TLSCertPath, conf.TLSKeyPath)
-	if err != nil {
-		fatal(logger, err)
-	}
-	tlsConf := &tls.Config{
-		Certificates: []tls.Certificate{keyPair},
-		ServerName:   conf.Host,
-	}
-
+	// HTTP server
 	srv := &http.Server{
 		Handler:           admissioncontrol.LoggingMiddleware(logger)(r),
 		TLSConfig:         tlsConf,
@@ -74,25 +72,19 @@ func main() {
 		WriteTimeout:      time.Second * 15,
 	}
 
-	go func() {
-		logger.Log(
-			"msg", fmt.Sprintf("admissiond listening on '%s:%s'", conf.Host, conf.Port),
-		)
-		if err := srv.ListenAndServeTLS("", ""); err != nil {
-			fatal(logger, err)
-		}
-	}()
-
-	// Graceful shutdown: block until we receive a signal.
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-signalChan
-
-	logger.Log(
-		"msg", "shutting down server",
-		"err", fmt.Sprintf("received signal: %s", sig.String()),
+	admissionServer, err := admissioncontrol.NewServer(
+		srv,
+		log.With(logger, "component", "server"),
 	)
-	srv.Shutdown(ctx)
+	if err != nil {
+		fatal(logger, err)
+		return
+	}
+
+	if err := admissionServer.Run(ctx); err != nil {
+		fatal(logger, err)
+		return
+	}
 }
 
 func fatal(logger log.Logger, err error) {

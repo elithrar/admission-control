@@ -12,9 +12,29 @@ jobs:
     steps:
       - checkout
       - run: go version
-      - run: go mod download
-      - run: diff -u <(echo -n) <(gofmt -d .)
-      - run: if [[ "$LATEST" = true ]]; then go vet -v ./...; fi
+      - run:
+          name: "Fetch dependencies"
+          command: go mod download
+      # Only run gofmt, vet & lint against the latest Go version
+      - run:
+          name: "Run golint"
+          command: >
+            if [ "${LATEST}" = true ] && [ -z "${SKIP_GOLINT}" ]; then
+              go get -u golang.org/x/lint/golint
+              golint ./...
+            fi
+      - run:
+          name: "Run gofmt"
+          command: >
+            if [[ "${LATEST}" = true ]]; then
+              diff -u <(echo -n) <(gofmt -d -e .)
+            fi
+      - run:
+          name: "Run go vet"
+          command: >
+            if [[ "${LATEST}" = true ]]; then
+              go vet -v ./...
+            fi
       - run: go test -v -race ./...
       - run: go build -v
 
@@ -37,7 +57,7 @@ jobs:
       - checkout
       - setup_remote_docker
       - run: docker version
-      - run: docker build .
+      - run: docker build -t elithrar/admissiond .
 
 workflows:
   version: 2
@@ -45,4 +65,6 @@ workflows:
     jobs:
       - "latest"
       - "1.12"
-      - "build-container"
+      - "build-container":
+          requires:
+            - "latest"
