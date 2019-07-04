@@ -1,14 +1,22 @@
-version: 2.0
+version: 2.1
 
 jobs:
   # Base test configuration for Go library tests Each distinct version should
   # inherit this base, and override (at least) the container image used.
-  "test-and-build": &test-and-build
+  "test": &test
+    parameters:
+      v:
+        type: string
+        default: "latest"
+      latest:
+        type: boolean
+        default: false
     docker:
-      - image: circleci/golang:latest
+      - image: "circleci/golang:<< parameters.v >>"
     working_directory: /go/src/github.com/elithrar/admission-control
     environment:
       GO111MODULE: "on"
+      LATEST: "<< parameters.latest >>"
     steps:
       - checkout
       - run: go version
@@ -35,19 +43,10 @@ jobs:
             if [[ "${LATEST}" = true ]]; then
               go vet -v ./...
             fi
-      - run: go test -v -race ./...
-      - run: go build -v
-
-  "latest":
-    <<: *test-and-build
-    environment:
-      LATEST: "true"
-      GO111MODULE: "on"
-
-  "1.12":
-    <<: *test-and-build
-    docker:
-      - image: circleci/golang:1.12
+      - run:
+          name: "Test"
+          command: >
+            go test -v -race ./...
 
   "build-container": &build-container
     docker:
@@ -60,11 +59,15 @@ jobs:
       - run: docker build -t elithrar/admissiond .
 
 workflows:
-  version: 2
   build:
     jobs:
-      - "latest"
-      - "1.12"
+      - test:
+          name: "latest"
+          v: "latest"
+          latest: true
+      - test:
+          name: "Go 1.12"
+          v: "1.12"
       - "build-container":
           requires:
             - "latest"
