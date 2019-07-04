@@ -33,7 +33,7 @@ type AdmissionHandler struct {
 	// LimitBytes limits the size of objects the webhook will handle.
 	LimitBytes int64
 	// Deserializer supports deserializing k8s objects. It can be left null; the
-	// ServeHTTP function will lazily instantiate a decoder for known types.
+	// ServeHTTP function will lazily instantiate a decoder instance.
 	Deserializer runtime.Decoder
 }
 

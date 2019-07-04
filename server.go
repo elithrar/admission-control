@@ -24,8 +24,8 @@ var (
 type AdmissionServer struct {
 	srv    *http.Server
 	logger log.Logger
-	// How long to wait for the server to complete in-flight requests when shutting
-	// down.
+	// GracePeriod is defines how long the server allows for in-flight connections
+	// to complete before exiting.
 	GracePeriod time.Duration
 }
 
@@ -40,32 +40,35 @@ func (as *AdmissionServer) shutdown(ctx context.Context, gracePeriod time.Durati
 
 // NewServer creates an unstarted AdmissionServer, ready to be started (via the 'Run' method).
 //
-// The provided *http.Server must have its Handler & TLSConfig fields set.
+// The provided *http.Server must have its Handler field set, and if deployed
+// into a Kubernetes cluster, a valid *tls.Config should be provided (Admission
+// Controllers deployed as in-cluster Services can only be reached over TLS).
 func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 	if srv == nil {
-		return nil, errors.New("a *http.Server must be provided")
-	}
-
-	if srv.TLSConfig == nil {
-		return nil, errors.New("a non-nil *http.Server.TLSConfig is required to start this server")
+		return nil, errors.New("a non-nil *http.Server must be provided")
 	}
 
 	if logger == nil {
 		return nil, errors.New("a non-nil log.Logger must be provided")
 	}
 
+	if srv.TLSConfig == nil {
+		logger.Log(
+			"msg", "the provided *http.Server has a nil TLSConfig, which will prevent it from being reached as an in-cluster Service",
+		)
+	}
+
 	as := &AdmissionServer{
-		srv:    srv,
-		logger: logger,
-		// GracePeriod is how long the server allows for in-flight connections to
-		// complete before exiting.
+		srv:         srv,
+		logger:      logger,
 		GracePeriod: defaultGracePeriod,
 	}
 
 	return as, nil
 }
 
-// Run the AdmissionServer; starting the configured *http.Server.
+// Run the AdmissionServer; starting the configured *http.Server. If a non-nil
+// TLSConfig was set, Run will start a TLS (HTTPS) server.
 //
 // Run will block indefinitely; and return under three explicit cases:
 //
@@ -79,26 +82,40 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 //
 // This allows us to stop accepting connections, allow in-flight connections to
 // finish gracefully (up to the configured grace period), and then close the
-// server.
+// server. You may also call the .Stop() method on the server to trigger a
+// shutdown.
 func (as *AdmissionServer) Run(ctx context.Context) error {
 	sigChan := make(chan os.Signal, 1)
 	defer close(sigChan)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// run in goroutine
 	errs := make(chan error)
 	defer close(errs)
 	go func() {
 		as.logger.Log(
 			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
 		)
-		if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			errs <- err
-			as.logger.Log(
-				"err", err.Error(),
-				"msg", "the server exited",
-			)
-			return
+
+		// Start a plantext HTTP server if no TLSConfig has been configured.
+		switch as.srv.TLSConfig {
+		case nil:
+			if err := as.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
+		default:
+			if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
 		}
 		return
 	}()
@@ -128,7 +145,7 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 	}
 }
 
-// Stop stops the AdmissionServer, if running.
+// Stop stops the AdmissionServer, if running, waiting for configured grace period.
 func (as *AdmissionServer) Stop() error {
-	return as.shutdown(context.TODO(), defaultGracePeriod)
+	return as.shutdown(context.TODO(), as.GracePeriod)
 }
