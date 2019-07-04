@@ -107,14 +107,12 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("Context cancellation stops server", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		testSrv := newTestServer(ctx, t)
+	t.Run("Stop stops the server", func(t *testing.T) {
+		testSrv := newTestServer(context.TODO(), t)
 		testSrv.srv.GracePeriod = time.Microsecond * 1
-		defer testSrv.srv.Stop()
 
 		// Force a shutdown
-		cancel()
+		testSrv.srv.Stop()
 		time.Sleep(testSrv.srv.GracePeriod)
 		if err := testSrv.srv.srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
 			t.Fatalf(
