@@ -40,22 +40,20 @@ func (as *AdmissionServer) shutdown(ctx context.Context, gracePeriod time.Durati
 
 // NewServer creates an unstarted AdmissionServer, ready to be started (via the 'Run' method).
 //
-// The provided *http.Server must have its Handler field set, and if deployed
-// into a Kubernetes cluster, a valid *tls.Config should be provided (Admission
-// Controllers deployed as in-cluster Services can only be reached over TLS).
+// The provided *http.Server must have its Handler field set, as well as a valid
+// and non-nil TLSConfig. Kubernetes requires that Admission Controllers are
+// only reachable over HTTPS (TLS), whether running in-cluster or externally.
 func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 	if srv == nil {
 		return nil, errors.New("a non-nil *http.Server must be provided")
 	}
 
-	if logger == nil {
-		return nil, errors.New("a non-nil log.Logger must be provided")
+	if srv.TLSConfig == nil {
+		return nil, errors.New("the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS")
 	}
 
-	if srv.TLSConfig == nil {
-		logger.Log(
-			"msg", "the provided *http.Server has a nil TLSConfig, which will prevent it from being reached as an in-cluster Service",
-		)
+	if logger == nil {
+		return nil, errors.New("a non-nil log.Logger must be provided")
 	}
 
 	as := &AdmissionServer{
@@ -67,10 +65,10 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 	return as, nil
 }
 
-// Run the AdmissionServer; starting the configured *http.Server. If a non-nil
-// TLSConfig was set, Run will start a TLS (HTTPS) server.
+// Run the AdmissionServer; starting the configured *http.Server, and blocking
+// indefinitely.
 //
-// Run will block indefinitely; and return under three explicit cases:
+// Run will return under three explicit cases:
 //
 // 1. An interrupt (SIGINT; "Ctrl+C") or termination (SIGTERM) signal, such as
 // the SIGTERM most process managers send: e.g. as Kubernetes sends to a Pod:
@@ -96,27 +94,15 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
 		)
 
-		// Start a plantext HTTP server if no TLSConfig has been configured.
-		switch as.srv.TLSConfig {
-		case nil:
-			if err := as.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				errs <- err
-				as.logger.Log(
-					"err", err.Error(),
-					"msg", "the server exited",
-				)
-				return
-			}
-		default:
-			if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-				errs <- err
-				as.logger.Log(
-					"err", err.Error(),
-					"msg", "the server exited",
-				)
-				return
-			}
+		if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			errs <- err
+			as.logger.Log(
+				"err", err.Error(),
+				"msg", "the server exited",
+			)
+			return
 		}
+
 		return
 	}()
 
