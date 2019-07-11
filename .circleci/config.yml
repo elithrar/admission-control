@@ -65,7 +65,7 @@ jobs:
       - run:
           name: "Build the container image"
           command: >
-            docker build -t elithrar/admissiond-example
+            docker build -t elithrar/admissiond-example .
 
 workflows:
   build:
