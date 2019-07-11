@@ -19,7 +19,10 @@ jobs:
       LATEST: "<< parameters.latest >>"
     steps:
       - checkout
-      - run: go version
+      - run:
+          name: "Print the Go version"
+          command: >
+            go version
       - run:
           name: "Fetch dependencies"
           command: go mod download
@@ -44,7 +47,7 @@ jobs:
               go vet -v ./...
             fi
       - run:
-          name: "Test"
+          name: "Run go test (+ race detector)"
           command: >
             go test -v -race ./...
 
@@ -55,8 +58,14 @@ jobs:
     steps:
       - checkout
       - setup_remote_docker
-      - run: docker version
-      - run: docker build -t elithrar/admissiond .
+      - run:
+          name: "Print the Docker version"
+          command: >
+            docker version
+      - run:
+          name: "Build the container image"
+          command: >
+            docker build -t elithrar/admissiond-example
 
 workflows:
   build:
