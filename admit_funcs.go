@@ -2,6 +2,7 @@ package admissioncontrol
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	admission "k8s.io/api/admission/v1beta1"
@@ -17,6 +18,10 @@ const (
 // DenyPublicServices rejects any Ingress objects, and rejects any Service
 // objects of type LoadBalancer without a GCP Internal Load Balancer annotation.
 func DenyPublicServices(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+	if admissionReview == nil || admissionReview.Request == nil {
+		return nil, errors.New("received invalid AdmissionReview")
+	}
+
 	kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
 	resp := &admission.AdmissionResponse{
 		Allowed: false, // Default deny
