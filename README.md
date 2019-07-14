@@ -7,18 +7,30 @@
 
 A micro-framework for building Kubernetes [Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/).
 
+- Can be used as the target of both [`ValidatingWebhookConfiguration`]() and [`MutatingWebhookConfiguration`]()
 - Provides an extensible `AdmissionHandler` type that accepts a custom
   admission function (or `AdmitFunc`), making it easy for you to add new
   validating or mutating webhook endpoints.
-- Makes it easy to set up: 
-- Includes an example `AdmitFunc` for denying the creation of public Ingress
   and Services in GKE.
-- Provides example `Deployment`, `Service` and `ValidatingWebhookConfiguration`
-  definitions for you to build off of.
+- Provides sample `Deployment`, `Service` and
+  `ValidatingWebhookConfiguration` definitions for you to build off of, and an
+  [`example webhook server`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond)
+  as additional guidance.
+
+There are a number of built-in `AdmitFunc`s to get you started, including denying `kind: Ingress` and public `LoadBalancer` types (of `kind: Service`) from being deployed to internal clusters.
 
 > **Note**: Looking to extend admission-control for your own uses? It's first-and-foremost exposed as a library - simply import it as `github.com/elithrar/admission-control` and reference the example server at `cmd/admissiond`.
 
-## Setup & Pre-requisites
+## Setup
+
+Setting up an Admission Controller on your Kubernetes cluster has three major steps:
+
+1. Generate a TLS keypair—Kubernetes only allows HTTPS (TLS) communication to Admission Controllers, whether in-cluster or hosted externally—and make it available as a `Secret` within your cluster.
+2. Deploy your HTTP server, exposing endpoints to validate (or mutate) incoming admissions, and make it available as a `Service`.
+
+3. Configure a `ValidatingWebhookConfiguration` that tells Kubernetes which objects should be validated, and the endpoint on your `Service` to validate them against.
+
+### Pre-requisites
 
 You'll need:
 
@@ -29,7 +41,7 @@ You'll need:
 
 ## Configuring a Server
 
-> ⚠ *Note*: Admission webhooks must support HTTPS (TLS) connections; k8s does not allow webhooks to be reached over plain-text HTTP. If running in-cluster, the Service fronting the controller must be reachable via TCP port 443. External webhooks only need to satisfy the HTTPS requirement, but can be reached on any valid TCP port.
+> ⚠ **Reminder**: Admission webhooks must support HTTPS (TLS) connections; k8s does not allow webhooks to be reached over plain-text HTTP. If running in-cluster, the Service fronting the controller must be reachable via TCP port 443. External webhooks only need to satisfy the HTTPS requirement, but can be reached on any valid TCP port.
 
 Having your k8s cluster create a TLS certificate for you will dramatically simplify the configuration, as self-signed certificates require you to provide a `.webhooks.clientConfig.caBundle` value for verification.
 
@@ -133,20 +145,50 @@ Perfect! 🎉
 
 ### Extending Things
 
-The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple.
+The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple. You can provide a closure that returns an `AdmitFunc` type if you need to inject additional dependencies into your handler, and/or use a constructor function to do the same.
 
-You can then pass pass the `AdmissionHandler` to your favorite HTTP router, and define a path that the function is avaiable on:
+The `AdmissionReview` type wraps the [`AdmissionRequest`](https://godoc.org/k8s.io/api/admission/v1beta1#AdmissionRequest), which can be serialized into a concrete type—such as a `Pod` or `Service`—and subsequently validated.
+
+An example `AdmitFunc` looks like this:
 
 ```go
-	r := mux.NewRouter().StrictSlash(true)
-	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
-		AdmitFunc:  admissioncontrol.DenyPublicServices,
-		Logger:     logger,
-    }).Methods(http.MethodPost)
+// DenyDefaultLoadBalancerSourceRanges denies any kind: Service of type:
+// LoadBalancer that does not explicitly set .spec.loadBalancerSourceRanges -
+// which defaults to 0.0.0.0/0 (e.g. Internet traffic, if routable).
+//
+// This prevents LoadBalancers from being accidentally exposed to the Internet.
+func DenyDefaultLoadBalancerSourceRanges() AdmitFunc {
+    // Return a function of type AdmitFunc
+    return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+        // do work
+
+        // returning a non-nil AdmissionResponse and a nil error will allow admission.
+
+        // returning an error will deny Admission; the error string will be
+        // provided to the client and should be clear about why we rejected
+        // them.
+    }
+}
 ```
 
-The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a step-by-step of how to configure & serve your admission controller endpoints.
+Tips:
+
+- Having your `AdmitFunc`s focus on "one" thing is best practice: it allows you to be more granular in how you apply constraints to your cluster
+-
+
+You can then create an [`AdmissionHandler`]() and pass it the `AdmitFunc`. Use your favorite HTTP router, and associate a path with your handler:
+
+```go
+	// We're using "gorilla/mux" as our router here.
+	r := mux.NewRouter().StrictSlash(true)
+	admissions := r.PathPrefix("/admission-control").Subrouter()
+	admissions.Handle("/deny-public-load-balancers", &admissioncontrol.AdmissionHandler{
+		AdmitFunc:  admissioncontrol.DenyPublicLoadBalancers,
+		Logger:     logger,
+		}).Methods(http.MethodPost)
+```
+
+The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a more complete example of how to configure & serve your admission controller endpoints.
 
 ---
 
