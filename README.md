@@ -7,7 +7,9 @@
 
 A micro-framework for building Kubernetes [Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/).
 
-- Can be used as the target of both [`ValidatingWebhookConfiguration`]() and [`MutatingWebhookConfiguration`]()
+- Can be used as the target of both [`ValidatingWebhookConfiguration`]() and
+  [`MutatingWebhookConfiguration`]() - handlers can return simple allow/deny
+  responses, or patches (mutations) to submitted resources.
 - Provides an extensible `AdmissionHandler` type that accepts a custom
   admission function (or `AdmitFunc`), making it easy for you to add new
   validating or mutating webhook endpoints.
@@ -17,18 +19,9 @@ A micro-framework for building Kubernetes [Admission Controllers](https://kubern
   [`example webhook server`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond)
   as additional guidance.
 
-There are a number of built-in `AdmitFunc`s to get you started, including denying `kind: Ingress` and public `LoadBalancer` types (of `kind: Service`) from being deployed to internal clusters.
+There are a number of built-in `AdmitFunc`s to get you started, including a `DenyIngress` and `DenyPublicLoadBalancers` to prevent exposing internal services to the Internet.
 
-> **Note**: Looking to extend admission-control for your own uses? It's first-and-foremost exposed as a library - simply import it as `github.com/elithrar/admission-control` and reference the example server at `cmd/admissiond`.
-
-## Setup
-
-Setting up an Admission Controller on your Kubernetes cluster has three major steps:
-
-1. Generate a TLS keypair—Kubernetes only allows HTTPS (TLS) communication to Admission Controllers, whether in-cluster or hosted externally—and make it available as a `Secret` within your cluster.
-2. Deploy your HTTP server, exposing endpoints to validate (or mutate) incoming admissions, and make it available as a `Service`.
-
-3. Configure a `ValidatingWebhookConfiguration` that tells Kubernetes which objects should be validated, and the endpoint on your `Service` to validate them against.
+---
 
 ### Pre-requisites
 
@@ -38,6 +31,18 @@ You'll need:
 - [`cfssl`](https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/#download-and-install-cfssl) as part of the process of generating a TLS key-pair, and some familiarity with creating TLS (SSL) certificates (CSRs, PEM-encoded certificates, keys).
 - Experience writing Go - for implementing your own `AdmitFuncs` (refer to the example `DenyPublicServices` AdmitFunc included).
 - Experience building OCI (Docker) containers via `docker build` or similar.
+
+## Setup
+
+Setting up an Admission Controller in your Kubernetes cluster has three major steps:
+
+1. Generate a TLS keypair—Kubernetes only allows HTTPS (TLS) communication to Admission Controllers, whether in-cluster or hosted externally—and make the key & certificate available as a `Secret` within your cluster.
+
+2. Create a `Deployment` with your Admission-Control-based server, mounting the TLS keypair in your `Secret` as a volume in the container.
+
+3. Configure a `ValidatingWebhookConfiguration` that tells Kubernetes which objects should be validated, and the endpoint (URL) on your `Service` to validate them against.
+
+Your single server can act as the admission controller for any number of `ValidatingWebhookConfiguration` or `MutatingWebhookConfiguration` - each configuration can point to a specific URL on the same server.
 
 ## Configuring a Server
 
@@ -85,6 +90,7 @@ webhooks:
       service:
         # This is the hostname our certificate needs in its Subject Alternative
         # Name array - name.namespace.svc
+        # If the certificate does NOT have this name, TLS validation will fail.
         name: admission-control-service
         namespace: default
         path: "/admission-control/deny-public-services"

@@ -48,6 +48,7 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 		return nil, errors.New("a non-nil *http.Server must be provided")
 	}
 
+	// TODO(matt): Should warn here & support plaintext HTTP for proxied environments
 	if srv.TLSConfig == nil {
 		return nil, errors.New("the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS")
 	}
@@ -94,6 +95,7 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
 		)
 
+		// TODO(matt): Listen as plaintext if no TLSConfig is provided.
 		if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			errs <- err
 			as.logger.Log(

@@ -4,18 +4,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	admission "k8s.io/api/admission/v1beta1"
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
 
+// CloudProvider represents supported cloud platforms for provider-specific
+// configuration.
+type CloudProvider int
+
 const (
-	// Docs: https://cloud.google.com/kubernetes-engine/docs/how-to/internal-load-balancing#overview
-	ilbAnnotationKey = "cloud.google.com/load-balancer-type"
-	ilbAnnotationVal = "Internal"
+	GCP CloudProvider = iota
+	Azure
+	AWS
+	OpenStack
 )
+
+// Docs: https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
+var ilbAnnotations = map[CloudProvider]map[string]string{
+	GCP:       {"cloud.google.com/load-balancer-type": "Internal"},
+	Azure:     {"service.beta.kubernetes.io/azure-load-balancer-internal": "true"},
+	AWS:       {"service.beta.kubernetes.io/aws-load-balancer-internal": "0.0.0.0/0"},
+	OpenStack: {"service.beta.kubernetes.io/openstack-internal-load-balancer": "true"},
+}
 
 // DenyIngresses denies any kind: Ingress from being deployed to the cluster,
 // except for whitelisted namespaces (e.g. istio-system).
@@ -24,10 +39,6 @@ const (
 // across all namespaces. Kinds other than Ingress will be allowed.
 func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-		if admissionReview == nil || admissionReview.Request == nil {
-			return nil, errors.New("received invalid AdmissionReview")
-		}
-
 		kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
 		resp := &admission.AdmissionResponse{
 			Allowed: false, // Default deny
@@ -52,23 +63,40 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 // https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 //
 // Services of types other than LoadBalancer will not be rejected by this handler.
-func DenyPublicLoadBalancers(allowedNamespaces []string, provider string) AdmitFunc {
+func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-		provider = strings.TrimSpace(strings.ToUpper(provider))
+		kind := admissionReview.Request.Kind.Kind
+		resp := &admission.AdmissionResponse{
+			Allowed: false,
+		}
+
+		service := core.Service{}
+		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+		if _, _, err := deserializer.Decode(raw, nil, &service); err != nil {
+			return nil, err
+		}
 
 		switch provider {
-		case "GKE":
+		case GCP:
+			// deserialize request into concrete Service type
+			// Inspect ObjectMeta.Annotations for matching key+val
+			// Reject if not present
+			if _, ok := ensureHasAnnotations(ilbAnnotations[GCP], meta.ObjectMeta{}); !ok {
+				// does not have annotations; print missing
+				return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
+			}
+		case Azure:
 			//
-		case "AKS":
+		case AWS:
 			//
-		case "AWS":
+		case OpenStack:
 			//
 		default:
 			// default deny
 			return nil, fmt.Errorf("cannot validate the internal load balancer annotation for the given provider (%q)", provider)
 		}
 
-		return nil, nil
+		return resp, nil
 	}
 }
 
