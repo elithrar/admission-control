@@ -31,7 +31,7 @@ func TestDenyIngress(t *testing.T) {
 			shouldAllow:     false,
 		},
 		{
-			testName:      "Don't reject Services",
+			testName: "Don't reject Services",
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Service",
