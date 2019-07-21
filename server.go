@@ -50,7 +50,10 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 
 	// TODO(matt): Should warn here & support plaintext HTTP for proxied environments
 	if srv.TLSConfig == nil {
-		return nil, errors.New("the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS")
+		// Warn that TLS termination is required
+		logger.Log(
+			"msg", "the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS, or from behind a TLS-terminating proxy",
+		)
 	}
 
 	if logger == nil {

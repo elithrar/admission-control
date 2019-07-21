@@ -27,9 +27,9 @@ func main() {
 	// Get config
 	conf := &conf{}
 	flag.StringVar(&conf.TLSCertPath, "cert-path", "./cert.crt", "The path to the PEM-encoded TLS certificate")
-	flag.StringVar(&conf.TLSKeyPath, "key-path", "./key.key", "The path to the unencrypted TLS key.")
+	flag.StringVar(&conf.TLSKeyPath, "key-path", "./key.key", "The path to the unencrypted TLS key")
 	flag.StringVar(&conf.Port, "port", "8443", "The port to listen on (HTTPS).")
-	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service.")
+	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service")
 	flag.Parse()
 
 	// Set up logging
@@ -56,20 +56,24 @@ func main() {
 	).Methods(http.MethodGet)
 
 	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyPublicServices,
-		Logger:    logger,
+	admissions.Handle("/deny-public-services-gcp", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(
+			// We specify GCP here; create separate routes if you have an off-cluster
+			// admission controller across multiple cloud providers.
+			[]string{"kube-system", "istio-system"}, admissioncontrol.GCP),
+		Logger: logger,
 	}).Methods(http.MethodPost)
 
 	// HTTP server
+	timeout := time.Second * 15
 	srv := &http.Server{
 		Handler:           admissioncontrol.LoggingMiddleware(logger)(r),
 		TLSConfig:         tlsConf,
 		Addr:              ":" + conf.Port,
-		IdleTimeout:       time.Second * 15,
-		ReadTimeout:       time.Second * 15,
-		ReadHeaderTimeout: time.Second * 15,
-		WriteTimeout:      time.Second * 15,
+		IdleTimeout:       timeout,
+		ReadTimeout:       timeout,
+		ReadHeaderTimeout: timeout,
+		WriteTimeout:      timeout,
 	}
 
 	admissionServer, err := admissioncontrol.NewServer(

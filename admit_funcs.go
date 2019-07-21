@@ -1,13 +1,11 @@
 package admissioncontrol
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 
 	admission "k8s.io/api/admission/v1beta1"
 	core "k8s.io/api/core/v1"
-	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -68,20 +66,27 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 		kind := admissionReview.Request.Kind.Kind
 		resp := &admission.AdmissionResponse{
 			Allowed: false,
+			Result:  &metav1.Status{},
 		}
 
 		service := core.Service{}
 		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
-		if _, _, err := deserializer.Decode(raw, nil, &service); err != nil {
+		if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &service); err != nil {
 			return nil, err
+		}
+
+		if service.Spec.Type != "LoadBalancer" {
+			resp.Allowed = true
+			resp.Result.Message = fmt.Sprintf(
+				"DenyPublicLoadBalancers received a non-LoadBalancer type (%s)",
+				service.Spec.Type,
+			)
+			return resp, nil
 		}
 
 		switch provider {
 		case GCP:
-			// deserialize request into concrete Service type
-			// Inspect ObjectMeta.Annotations for matching key+val
-			// Reject if not present
-			if _, ok := ensureHasAnnotations(ilbAnnotations[GCP], meta.ObjectMeta{}); !ok {
+			if _, ok := ensureHasAnnotations(ilbAnnotations[GCP], service.ObjectMeta.Annotations); !ok {
 				// does not have annotations; print missing
 				return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 			}
@@ -100,114 +105,39 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 	}
 }
 
-// DenyPublicServices rejects any Ingress objects, and rejects any Service
-// objects of type LoadBalancer without a GCP Internal Load Balancer annotation.
-func DenyPublicServices(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-	if admissionReview == nil || admissionReview.Request == nil {
-		return nil, errors.New("received invalid AdmissionReview")
-	}
-
-	kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
-	resp := &admission.AdmissionResponse{
-		Allowed: false, // Default deny
-	}
-
-	switch kind {
-	case "Ingress":
-		return nil, fmt.Errorf("%s objects cannot be deployed to this cluster", kind)
-	case "Service":
-		service := core.Service{}
-		if err := json.Unmarshal(admissionReview.Request.Object.Raw, &service); err != nil {
-			return nil, err
-		}
-
-		if service.Spec.Type == "LoadBalancer" {
-			if val, ok := service.ObjectMeta.Annotations[ilbAnnotationKey]; ok {
-				if val == ilbAnnotationVal {
-					resp.Allowed = true
-					return resp, nil
-				}
-
-				// Not allowed when annotation value doesn't match.
-				resp.Allowed = false
-			}
-
-			return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
-		}
-
-		fallthrough
-	default:
-		resp.Allowed = true
-	}
-
-	return resp, nil
-}
-
 // ensureHasAnnotations checks whether the provided ObjectMeta has the required
 // annotations. It returns both a map of missing annotations, and a boolean
 // value if the meta had all of the provided annotations.
 //
 // The required annotations are case-sensitive; an empty string for the map
 // value will match on key (only) and thus allow any value.
-func ensureHasAnnotations(required map[string]string, objectMeta meta.ObjectMeta) (map[string]string, bool) {
+func ensureHasAnnotations(required map[string]string, annotations map[string]string) (map[string]string, bool) {
 
 	return nil, false
 }
 
-// DenyPodWithoutAnnotations rejects Pods without the provided map of
-// annotations (keys, values). The annotations must match exactly
-// (case-sensitive).
-// func DenyPodWithoutAnnotations(requiredAnnotations map[string]string) func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 	admitFunc := func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 		allowed := false
-//
+// func DenyContainersWithMutableTags(allowedNamespaces []string, allowedTags []string) AdmitFunc {
+// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
-// 		// name := admissionReview.Request.Name
 // 		resp := &admission.AdmissionResponse{
-// 			Allowed: allowed,
+// 			Allowed: false,
 // 		}
 //
-// 		if kind == "Pod" {
-// 			pod := core.Pod{}
-// 			if err := json.Unmarshal(admissionReview.Request.Object.Raw, &pod); err != nil {
-// 				return nil, err
-// 			}
-//
-// 			annotations := pod.ObjectMeta.Annotations
-// 			missing := map[string]string{}
-// 			for requiredKey, requiredVal := range requiredAnnotations {
-// 				if meta.HasAnnotation(pod.ObjectMeta, requiredKey) {
-// 					if annotations[requiredKey] != requiredVal {
-// 						resp.Allowed = false
-// 						// Required value does not match
-// 						// Add to "missing" list to report back on
-// 					}
-// 					// Has key & matching value
-// 				}
-// 				// does not have key at all
-// 				// add to "missing" list to report back on
-// 			}
-//
-// 			if len(missing) == 0 {
-// 				resp.Allowed = true
-// 			}
-//
-// 			// for requiredKey, requiredVal := range requiredAnnotations {
-// 			// 	if actualVal, ok := annotations[requiredKey]; ok {
-// 			// 		if actualVal != requiredVal {
-// 			// 			return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
-// 			// 		}
-// 			// 	} else {
-// 			// 		return nil, fmt.Errorf("the submitted %s (name: %s) is missing required annotations: %#v", kind, name, requiredAnnotations)
-// 			// 	}
-// 			// }
-// 		} else {
-// 			resp.Allowed = true
-// 		}
+//		TODO(matt): Range over Containers in a Pod spec, parse image URL and inspect tags.
 //
 // 		return resp, nil
 // 	}
-//
-// 	return admitFunc
 // }
+
+// func EnforcePodAnnotations(allowedNamespaces []string, requiredAnnotations map[string]string) AdmitFunc {
+// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+// 		kind := admissionReview.Request.Kind.Kind
+// 		resp := &admission.AdmissionResponse{
+// 			Allowed: false,
+// 		}
 //
+//		TODO(matt): enforce annotations on a Pod
+//
+// 		return resp, nil
+// 	}
+// }

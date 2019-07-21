@@ -8,9 +8,12 @@ import (
 )
 
 // TestDenyPublicServices checks that the correct kind, type & annotation combinations are valid for the AdmitFunc.
-func TestDenyPublicServices(t *testing.T) {
+func TestDenyPublicLoadBalancers(t *testing.T) {
+	var expectedLBMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
+
 	var denyTests = []struct {
 		testName        string
+		cloudProvider   CloudProvider
 		kind            meta.GroupVersionKind
 		rawObject       []byte
 		expectedMessage string
@@ -28,7 +31,8 @@ func TestDenyPublicServices(t *testing.T) {
 			shouldAllow:     false,
 		},
 		{
-			testName: "Reject Public Service",
+			testName:      "Reject Public Service",
+			cloudProvider: GCP,
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Service",
@@ -39,7 +43,8 @@ func TestDenyPublicServices(t *testing.T) {
 			shouldAllow:     false,
 		},
 		{
-			testName: "Allow Annotated Private Service",
+			testName:      "Allow Annotated Private Service (GCP)",
+			cloudProvider: GCP,
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Service",
@@ -50,18 +55,55 @@ func TestDenyPublicServices(t *testing.T) {
 			shouldAllow:     true,
 		},
 		{
-			testName: "Reject Incorrectly Annotated Private Service",
+			testName:      "Allow Annotated Private Service (Azure)",
+			cloudProvider: Azure,
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": "Internal"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName:      "Reject Incorrectly Annotated Private Service (no annotation)",
+			cloudProvider: GCP,
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Service",
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": ""}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: expectedLBMessage,
+			shouldAllow:     false,
+		},
+		{
+			testName:      "Reject Incorrectly Annotated Private Service (missing annotation val)",
+			cloudProvider: GCP,
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": ""}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: expectedLBMessage,
+			shouldAllow:     false,
+		},
+		{
+			testName:      "Reject Incorrectly Annotated Private Service (Azure provider, AWS annotation)",
+			cloudProvider: Azure,
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"service.beta.kubernetes.io/aws-load-balancer-internal": "0.0.0.0/0"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
 			expectedMessage: "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster",
 			shouldAllow:     false,
 		},
 		{
-			testName: "Allow Pods",
+			testName: "Don't reject Pods",
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Pod",
@@ -72,7 +114,7 @@ func TestDenyPublicServices(t *testing.T) {
 			shouldAllow:     true,
 		},
 		{
-			testName: "Allow Deployments",
+			testName: "Don't reject Deployments",
 			kind: meta.GroupVersionKind{
 				Group:   "apps",
 				Kind:    "Deployment",
@@ -92,7 +134,7 @@ func TestDenyPublicServices(t *testing.T) {
 			incomingReview.Request.Kind = tt.kind
 			incomingReview.Request.Object.Raw = tt.rawObject
 
-			resp, err := DenyPublicServices(&incomingReview)
+			resp, err := DenyPublicLoadBalancers(nil, tt.cloudProvider)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
 					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
