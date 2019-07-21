@@ -98,15 +98,29 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
 		)
 
-		// TODO(matt): Listen as plaintext if no TLSConfig is provided.
-		if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			errs <- err
-			as.logger.Log(
-				"err", err.Error(),
-				"msg", "the server exited",
-			)
-			return
+		// Start a plaintext listener if no TLSConfig is provided
+		switch as.srv.TLSConfig {
+		case nil:
+			if err := as.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
+		default:
+			if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
 		}
+
+		// TODO(matt): Listen as plaintext if no TLSConfig is provided.
 
 		return
 	}()
