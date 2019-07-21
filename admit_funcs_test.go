@@ -8,14 +8,17 @@ import (
 )
 
 type objectTest struct {
-	testName        string
-	cloudProvider   CloudProvider
-	kind            meta.GroupVersionKind
-	rawObject       []byte
-	expectedMessage string
-	shouldAllow     bool
+	testName          string
+	cloudProvider     CloudProvider
+	kind              meta.GroupVersionKind
+	rawObject         []byte
+	ignoredNamespaces []string
+	expectedMessage   string
+	shouldAllow       bool
 }
 
+// TestDenyIngress validates that the DenyIngress AdmitFunc correctly rejects
+// admission of Ingress objects to a cluster.
 func TestDenyIngress(t *testing.T) {
 	var deniedIngressError = "Ingress objects cannot be deployed to this cluster"
 	var denyTests = []objectTest{
@@ -29,6 +32,41 @@ func TestDenyIngress(t *testing.T) {
 			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"extensions","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
 			expectedMessage: deniedIngressError,
 			shouldAllow:     false,
+		},
+		{
+			testName: "Reject Ingress (>= v1.14)",
+			kind: meta.GroupVersionKind{
+				Group:   "networking.k8s.io",
+				Kind:    "Ingress",
+				Version: "v1beta1",
+			},
+			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"networking.k8s.io","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
+			expectedMessage: deniedIngressError,
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow admission to a whitelisted namespace",
+			kind: meta.GroupVersionKind{
+				Group:   "extensions",
+				Kind:    "Ingress",
+				Version: "v1beta1",
+			},
+			rawObject:         []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"extensions","metadata":{"name":"hello-ingress","namespace":"istio-system","annotations":{}},"spec":{"rules":[]}}`),
+			ignoredNamespaces: []string{"istio-system"},
+			expectedMessage:   "",
+			shouldAllow:       true,
+		},
+		{
+			testName: "Reject Ingress in incorrectly whitelisted namespace (case-sensitive)",
+			kind: meta.GroupVersionKind{
+				Group:   "extensions",
+				Kind:    "Ingress",
+				Version: "v1beta1",
+			},
+			rawObject:         []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"extensions","metadata":{"name":"hello-ingress","namespace":"UPPER-CASE","annotations":{}},"spec":{"rules":[]}}`),
+			ignoredNamespaces: []string{"upper-case"},
+			expectedMessage:   deniedIngressError,
+			shouldAllow:       false,
 		},
 		{
 			testName: "Don't reject Services",
@@ -73,7 +111,7 @@ func TestDenyIngress(t *testing.T) {
 			incomingReview.Request.Kind = tt.kind
 			incomingReview.Request.Object.Raw = tt.rawObject
 
-			resp, err := DenyIngresses(nil)(&incomingReview)
+			resp, err := DenyIngresses(tt.ignoredNamespaces)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
 					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
@@ -95,34 +133,12 @@ func TestDenyIngress(t *testing.T) {
 
 }
 
-// TestDenyPublicServices checks that the correct kind, type & annotation combinations are valid for the AdmitFunc.
+// TestDenyPublicServices checks that the DenyPublicServices AdmitFunc correctly
+// rejects non-internal load balancer admission to a cluster.
 func TestDenyPublicLoadBalancers(t *testing.T) {
 	var missingLBAnnotationsMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
 
 	var denyTests = []objectTest{
-		{
-			testName: "Don't reject Ingress (<= v1.13)",
-			kind: meta.GroupVersionKind{
-				Group:   "extensions",
-				Kind:    "Ingress",
-				Version: "v1beta1",
-			},
-			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"extensions","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
-			expectedMessage: "",
-			shouldAllow:     true,
-		},
-		{
-
-			testName: "Don't reject Ingress (>= v1.14)",
-			kind: meta.GroupVersionKind{
-				Group:   "networking.k8s.io",
-				Kind:    "Ingress",
-				Version: "v1beta1",
-			},
-			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"networking.k8s.io","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
-			expectedMessage: "",
-			shouldAllow:     true,
-		},
 		{
 			testName:      "Reject Public Service",
 			cloudProvider: GCP,
@@ -146,6 +162,32 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type":"Internal"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
 			expectedMessage: "",
 			shouldAllow:     true,
+		},
+		{
+			testName:      "Allow Public Service in Whitelisted Namespace",
+			cloudProvider: GCP,
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:         []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"web-services","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			ignoredNamespaces: []string{"web-services"},
+			expectedMessage:   "",
+			shouldAllow:       true,
+		},
+		{
+			testName:      "Reject public Service in incorrectly whitelisted namespace (case-sensitive)",
+			cloudProvider: GCP,
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:         []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"WEB-SERVICES","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			ignoredNamespaces: []string{"web-services"},
+			expectedMessage:   missingLBAnnotationsMessage,
+			shouldAllow:       false,
 		},
 		{
 			testName:      "Allow Annotated Private Service (Azure)",
@@ -208,6 +250,29 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			shouldAllow:     false,
 		},
 		{
+			testName: "Don't reject Ingress (<= v1.13)",
+			kind: meta.GroupVersionKind{
+				Group:   "extensions",
+				Kind:    "Ingress",
+				Version: "v1beta1",
+			},
+			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"extensions","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+
+			testName: "Don't reject Ingress (>= v1.14)",
+			kind: meta.GroupVersionKind{
+				Group:   "networking.k8s.io",
+				Kind:    "Ingress",
+				Version: "v1beta1",
+			},
+			rawObject:       []byte(`{"kind":"Ingress","apiVersion":"v1beta1","group":"networking.k8s.io","metadata":{"name":"hello-ingress","namespace":"default","annotations":{}},"spec":{"rules":[]}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
 			testName: "Don't reject Pods",
 			kind: meta.GroupVersionKind{
 				Group:   "",
@@ -239,7 +304,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			incomingReview.Request.Kind = tt.kind
 			incomingReview.Request.Object.Raw = tt.rawObject
 
-			resp, err := DenyPublicLoadBalancers(nil, tt.cloudProvider)(&incomingReview)
+			resp, err := DenyPublicLoadBalancers(tt.ignoredNamespaces, tt.cloudProvider)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
 					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
