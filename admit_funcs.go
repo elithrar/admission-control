@@ -27,7 +27,8 @@ const (
 	OpenStack
 )
 
-// ilbAnnotations maps the annotation key:value pairs required to denote an internal-only load balancer on the supported cloud platforms.
+// ilbAnnotations maps the annotation key:value pairs required to denote an
+// internal-only load balancer on the supported cloud platforms.
 //
 // Docs: https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 var ilbAnnotations = map[CloudProvider]map[string]string{
@@ -37,8 +38,8 @@ var ilbAnnotations = map[CloudProvider]map[string]string{
 	OpenStack: {"service.beta.kubernetes.io/openstack-internal-load-balancer": "true"},
 }
 
-// newDefaultDenyResponse returns an AdmissionResponse that defaults to allowed
-// = false, and creates sub-objects.
+// newDefaultDenyResponse returns an AdmissionResponse with a Result sub-object,
+// and defaults to allowed = false.
 func newDefaultDenyResponse() *admission.AdmissionResponse {
 	return &admission.AdmissionResponse{
 		Allowed: false,
@@ -68,7 +69,7 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 			for _, ns := range allowedNamespaces {
 				if ingress.Namespace == ns {
 					resp.Allowed = true
-					resp.Result.Message = "%s namespace is whitelisted"
+					resp.Result.Message = "allowing admission: %s namespace is whitelisted"
 					return resp, nil
 				}
 			}
@@ -76,7 +77,7 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 			return nil, fmt.Errorf("%s objects cannot be deployed to this cluster", kind)
 		default:
 			resp.Allowed = true
-			return nil, nil
+			return resp, nil
 		}
 	}
 }
@@ -119,13 +120,17 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 
 		expectedAnnotations, ok := ilbAnnotations[provider]
 		if !ok {
-			return nil, fmt.Errorf("cannot validate the internal load balancer annotation for the given provider (%q)", provider)
+			return nil, fmt.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
 		}
 
-		if _, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
-			// does not have annotations; print missing
+		// If we're missing any annotations, provide them in the AdmissionResponse so
+		// the user can correct them.
+		if missing, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
+			resp.Result.Message = fmt.Sprintf("%s object is missing the required annotations: %v", kind, missing)
 			return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 		}
+
+		resp.Allowed = true
 
 		return resp, nil
 	}
@@ -138,8 +143,26 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 // The required annotations are case-sensitive; an empty string for the map
 // value will match on key (only) and thus allow any value.
 func ensureHasAnnotations(required map[string]string, annotations map[string]string) (map[string]string, bool) {
+	missing := make(map[string]string)
+	for requiredKey, requiredVal := range required {
+		if existingVal, ok := annotations[requiredKey]; !ok {
+			// Missing a required annotation; add it to the list
+			missing[requiredKey] = requiredVal
+		} else {
+			// The key exists; does the value match?
+			if existingVal != requiredVal {
+				missing[requiredKey] = requiredVal
+			}
+		}
+	}
 
-	return nil, false
+	// If we have any missing annotations, report them to the caller so the user
+	// can take action.
+	if len(missing) > 0 {
+		return missing, false
+	}
+
+	return nil, true
 }
 
 // func DenyContainersWithMutableTags(allowedNamespaces []string, allowedTags []string) AdmitFunc {
@@ -153,12 +176,23 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 // 	}
 // }
 
-// func EnforcePodAnnotations(allowedNamespaces []string, requiredAnnotations map[string]string) AdmitFunc {
+// func EnforcePodAnnotations(allowedNamespaces []string, matchFunc func(string, string) bool) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
 // 		resp := newDefaultDenyResponse()
 //
 //		TODO(matt): enforce annotations on a Pod
+//
+// 		return resp, nil
+// 	}
+// }
+
+// func AddAnnotationsToPod(allowedNamespaces []string, newAnnotations map[string]string) AdmitFunc {
+// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+// 		kind := admissionReview.Request.Kind.Kind
+// 		resp := newDefaultDenyResponse()
+//
+//		TODO(matt): Add annotations to the object's ObjectMeta.
 //
 // 		return resp, nil
 // 	}

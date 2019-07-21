@@ -30,6 +30,39 @@ func TestDenyIngress(t *testing.T) {
 			expectedMessage: deniedIngressError,
 			shouldAllow:     false,
 		},
+		{
+			testName:      "Don't reject Services",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Don't reject Pods",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:       nil,
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Don't reject Deployments",
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			rawObject:       nil,
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
 	}
 
 	for _, tt := range denyTests {
@@ -55,7 +88,7 @@ func TestDenyIngress(t *testing.T) {
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("incorrectly allowed admission for %s (kind: %v): %s", tt.testName, tt.kind, resp.String())
+				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
@@ -64,7 +97,7 @@ func TestDenyIngress(t *testing.T) {
 
 // TestDenyPublicServices checks that the correct kind, type & annotation combinations are valid for the AdmitFunc.
 func TestDenyPublicLoadBalancers(t *testing.T) {
-	var expectedLBMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
+	var missingLBAnnotationsMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
 
 	var denyTests = []objectTest{
 		{
@@ -110,7 +143,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				Kind:    "Service",
 				Version: "v1",
 			},
-			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": "Internal"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type":"Internal"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
 			expectedMessage: "",
 			shouldAllow:     true,
 		},
@@ -122,7 +155,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				Kind:    "Service",
 				Version: "v1",
 			},
-			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": "Internal"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"service.beta.kubernetes.io/azure-load-balancer-internal":"true"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
 			expectedMessage: "",
 			shouldAllow:     true,
 		},
@@ -135,7 +168,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"service.beta.kubernetes.io/aws-load-balancer-internal":"0.0.0.0/0"}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
-			expectedMessage: "",
+			expectedMessage: missingLBAnnotationsMessage,
 			shouldAllow:     true,
 		},
 		{
@@ -147,7 +180,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": ""}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
-			expectedMessage: expectedLBMessage,
+			expectedMessage: missingLBAnnotationsMessage,
 			shouldAllow:     false,
 		},
 		{
@@ -159,7 +192,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{"cloud.google.com/load-balancer-type": ""}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
-			expectedMessage: expectedLBMessage,
+			expectedMessage: missingLBAnnotationsMessage,
 			shouldAllow:     false,
 		},
 		{
@@ -221,7 +254,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("incorrectly allowed admission for %s (kind: %v): %s", tt.testName, tt.kind, resp.String())
+				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}

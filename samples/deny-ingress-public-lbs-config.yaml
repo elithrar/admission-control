@@ -5,6 +5,9 @@ metadata:
 webhooks:
   - name: deny-ingresses.questionable.services
     sideEffects: None
+    # "Equivalent" provides insurance against API version upgrades/changes - e.g.
+    # extensions/v1beta1 Ingress -> networking.k8s.io/v1beta1 Ingress
+    matchPolicy: Equivalent
     rules:
       - apiGroups:
           - "extensions"
@@ -34,6 +37,7 @@ webhooks:
       # url: ""
   - name: deny-public-load-balancers.questionable.services
     sideEffects: None
+    matchPolicy: Equivalent
     rules:
       - apiGroups:
           - "*"
@@ -52,7 +56,7 @@ webhooks:
         # If the certificate does NOT have this name, TLS validation will fail.
         name: admission-control-service
         namespace: default
-        path: "/admission-control/deny-public-load-balancers"
+        path: "/admission-control/deny-public-load-balancers/gcp"
       # This should be the CA certificate from your Kubernetes cluster
       # Use the below to generate the certificate in a valid format:
       # $ kubectl config view --raw --minify --flatten \

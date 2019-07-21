@@ -50,7 +50,6 @@ func main() {
 
 	// Set up the routes & logging middleware.
 	r := mux.NewRouter().StrictSlash(true)
-
 	r.HandleFunc("/healthz",
 		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
 	).Methods(http.MethodGet)
@@ -67,6 +66,10 @@ func main() {
 	}).Methods(http.MethodPost)
 	admissions.Handle("/deny-public-services/azure", &admissioncontrol.AdmissionHandler{
 		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.Azure),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/aws", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.AWS),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
