@@ -66,14 +66,7 @@ func TestDenyIngress(t *testing.T) {
 func TestDenyPublicLoadBalancers(t *testing.T) {
 	var expectedLBMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
 
-	var denyTests = []struct {
-		testName        string
-		cloudProvider   CloudProvider
-		kind            meta.GroupVersionKind
-		rawObject       []byte
-		expectedMessage string
-		shouldAllow     bool
-	}{
+	var denyTests = []objectTest{
 		{
 			testName: "Don't reject Ingress (<= v1.13)",
 			kind: meta.GroupVersionKind{
