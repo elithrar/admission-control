@@ -5,6 +5,7 @@ import (
 
 	admission "k8s.io/api/admission/v1beta1"
 	core "k8s.io/api/core/v1"
+	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,12 +17,18 @@ import (
 type CloudProvider int
 
 const (
+	// GCP is a constant for Google Cloud Platform specific logic.
 	GCP CloudProvider = iota
+	// Azure is a constant for cloud-specific logic.
 	Azure
+	// AWS is a constant for Amazon Web Services specific logic.
 	AWS
+	// OpenStack is a constant for cloud-specific logic.
 	OpenStack
 )
 
+// ilbAnnotations maps the annotation key:value pairs required to denote an internal-only load balancer on the supported cloud platforms.
+//
 // Docs: https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 var ilbAnnotations = map[CloudProvider]map[string]string{
 	GCP:       {"cloud.google.com/load-balancer-type": "Internal"},
@@ -30,20 +37,42 @@ var ilbAnnotations = map[CloudProvider]map[string]string{
 	OpenStack: {"service.beta.kubernetes.io/openstack-internal-load-balancer": "true"},
 }
 
+// newDefaultDenyResponse returns an AdmissionResponse that defaults to allowed
+// = false, and creates sub-objects.
+func newDefaultDenyResponse() *admission.AdmissionResponse {
+	return &admission.AdmissionResponse{
+		Allowed: false,
+		Result:  &metav1.Status{},
+	}
+}
+
 // DenyIngresses denies any kind: Ingress from being deployed to the cluster,
-// except for whitelisted namespaces (e.g. istio-system).
+// except for any explicitly allowed namespaces (e.g. istio-system).
 //
 // Providing an empty/nil list of allowedNamespaces will reject Ingress objects
 // across all namespaces. Kinds other than Ingress will be allowed.
 func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
-		resp := &admission.AdmissionResponse{
-			Allowed: false, // Default deny
-		}
+		resp := newDefaultDenyResponse()
 
 		switch kind {
 		case "Ingress":
+			ingress := extensionsv1beta1.Ingress{}
+			deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &ingress); err != nil {
+				return nil, err
+			}
+
+			// Allow Ingresses in whitelisted namespaces.
+			for _, ns := range allowedNamespaces {
+				if ingress.Namespace == ns {
+					resp.Allowed = true
+					resp.Result.Message = "%s namespace is whitelisted"
+					return resp, nil
+				}
+			}
+
 			return nil, fmt.Errorf("%s objects cannot be deployed to this cluster", kind)
 		default:
 			resp.Allowed = true
@@ -60,14 +89,11 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 // The required annotations are documented at
 // https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 //
-// Services of types other than LoadBalancer will not be rejected by this handler.
+// Services with a .spec.type other than LoadBalancer will NOT be rejected by this handler.
 func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind
-		resp := &admission.AdmissionResponse{
-			Allowed: false,
-			Result:  &metav1.Status{},
-		}
+		resp := newDefaultDenyResponse()
 
 		service := core.Service{}
 		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
@@ -84,21 +110,21 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 			return resp, nil
 		}
 
-		switch provider {
-		case GCP:
-			if _, ok := ensureHasAnnotations(ilbAnnotations[GCP], service.ObjectMeta.Annotations); !ok {
-				// does not have annotations; print missing
-				return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
+		// Don't deny Services in whitelisted namespaces
+		for _, ns := range allowedNamespaces {
+			if service.Namespace == ns {
+				// this namespace is whitelisted
 			}
-		case Azure:
-			//
-		case AWS:
-			//
-		case OpenStack:
-			//
-		default:
-			// default deny
+		}
+
+		expectedAnnotations, ok := ilbAnnotations[provider]
+		if !ok {
 			return nil, fmt.Errorf("cannot validate the internal load balancer annotation for the given provider (%q)", provider)
+		}
+
+		if _, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
+			// does not have annotations; print missing
+			return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 		}
 
 		return resp, nil
@@ -119,9 +145,7 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 // func DenyContainersWithMutableTags(allowedNamespaces []string, allowedTags []string) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
-// 		resp := &admission.AdmissionResponse{
-// 			Allowed: false,
-// 		}
+// 		resp := newDefaultDenyResponse()
 //
 //		TODO(matt): Range over Containers in a Pod spec, parse image URL and inspect tags.
 //
@@ -132,9 +156,7 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 // func EnforcePodAnnotations(allowedNamespaces []string, requiredAnnotations map[string]string) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
-// 		resp := &admission.AdmissionResponse{
-// 			Allowed: false,
-// 		}
+// 		resp := newDefaultDenyResponse()
 //
 //		TODO(matt): enforce annotations on a Pod
 //

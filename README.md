@@ -11,17 +11,83 @@ A micro-framework for building Kubernetes [Admission Controllers](https://kubern
   [`MutatingWebhookConfiguration`]() - handlers can return simple allow/deny
   responses, or patches (mutations) to submitted resources.
 - Provides an extensible `AdmissionHandler` type that accepts a custom
-  admission function (or `AdmitFunc`), making it easy for you to add new
+  admission function (called an `AdmitFunc`), making it easy for you to add new
   validating or mutating webhook endpoints.
-  and Services in GKE.
 - Provides sample `Deployment`, `Service` and
   `ValidatingWebhookConfiguration` definitions for you to build off of, and an
   [`example webhook server`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond)
   as additional guidance.
 
-There are a number of built-in `AdmitFunc`s to get you started, including a `DenyIngress` and `DenyPublicLoadBalancers` to prevent exposing internal services to the Internet.
+---
+
+## Using the Framework
+
+### Built-In AdmitFuncs
+
+Admission Control provides a number of useful built-in _AdmitFuncs_, including:
+
+- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster; instead requiring the LB to be annotated as internal-only.
+- `DenyIngresses` - similar to the above, it prevents creating Ingresses (except in the namespaces you allow)
+
+More built-ins are coming soon! ⏳
+
+### Creating Your Own AdmitFunc
+
+The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple. You can provide a closure that returns an `AdmitFunc` type if you need to inject additional dependencies into your handler, and/or use a constructor function to do the same.
+
+The `AdmissionReview` type wraps the [`AdmissionRequest`](https://godoc.org/k8s.io/api/admission/v1beta1#AdmissionRequest), which can be serialized into a concrete type—such as a `Pod` or `Service`—and subsequently validated.
+
+An example `AdmitFunc` looks like this:
+
+```go
+// DenyDefaultLoadBalancerSourceRanges denies any kind: Service of type:
+// LoadBalancer that does not explicitly set .spec.loadBalancerSourceRanges -
+// which defaults to 0.0.0.0/0 (e.g. Internet traffic, if routable).
+//
+// This prevents LoadBalancers from being accidentally exposed to the Internet.
+func DenyDefaultLoadBalancerSourceRanges() AdmitFunc {
+    // Return a function of type AdmitFunc
+    return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+        // do work
+
+        // returning a non-nil AdmissionResponse and a nil error will allow admission.
+
+        // returning an error will deny Admission; the error string will be
+        // provided to the client and should be clear about why we rejected
+        // them.
+    }
+}
+```
+
+Tips:
+
+- Having your `AdmitFunc`s focus on "one" thing is best practice: it allows you to be more granular in how you apply constraints to your cluster
+- Returning an `AdmitFunc` from a constructor/closure will allow you to inject dependencies and/or configuration into your handler.
+
+You can then create an [`AdmissionHandler`](https://godoc.org/github.com/elithrar/admission-control#AdmissionHandler) and pass it the `AdmitFunc`. Use your favorite HTTP router, and associate a path with your handler:
+
+```go
+	// We're using "gorilla/mux" as our router here.
+	r := mux.NewRouter().StrictSlash(true)
+	admissions := r.PathPrefix("/admission-control").Subrouter()
+	admissions.Handle("/deny-default-load-balancer-source-ranges", &admissioncontrol.AdmissionHandler{
+		AdmitFunc:  admissioncontrol.DenyDefaultLoadBalancerSourceRanges(),
+		Logger:     logger,
+	}).Methods(http.MethodPost)
+```
+
+The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a more complete example of how to configure & serve your admission controller endpoints.
 
 ---
+
+## Configuring & Deploying a Server
+
+There are two ways to deploy an admission controller:
+
+1. In-cluster, where it runs as a Pod and is exposed as a Service to the rest of the cluster. This requires you to provision a TLS keypair, as admission controllers can only be accessed over TLS (HTTPS).
+2. Out-of-cluster, where it is accessible over HTTPS by the cluster. The admission controller could be hosted on another cluster, or more commonly, via a serverless platform like [Cloud Run](https://cloud.google.com/run/) or [Azure Container Instances](https://azure.microsoft.com/en-us/services/container-instances/).
+
+The documentation below covers deploying within a Kubernetes cluster (option 1).
 
 ### Pre-requisites
 
@@ -148,55 +214,6 @@ Error from server (hello-service does not have the cloud.google.com/load-balance
 ```
 
 Perfect! 🎉
-
-### Extending Things
-
-The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple. You can provide a closure that returns an `AdmitFunc` type if you need to inject additional dependencies into your handler, and/or use a constructor function to do the same.
-
-The `AdmissionReview` type wraps the [`AdmissionRequest`](https://godoc.org/k8s.io/api/admission/v1beta1#AdmissionRequest), which can be serialized into a concrete type—such as a `Pod` or `Service`—and subsequently validated.
-
-An example `AdmitFunc` looks like this:
-
-```go
-// DenyDefaultLoadBalancerSourceRanges denies any kind: Service of type:
-// LoadBalancer that does not explicitly set .spec.loadBalancerSourceRanges -
-// which defaults to 0.0.0.0/0 (e.g. Internet traffic, if routable).
-//
-// This prevents LoadBalancers from being accidentally exposed to the Internet.
-func DenyDefaultLoadBalancerSourceRanges() AdmitFunc {
-    // Return a function of type AdmitFunc
-    return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-        // do work
-
-        // returning a non-nil AdmissionResponse and a nil error will allow admission.
-
-        // returning an error will deny Admission; the error string will be
-        // provided to the client and should be clear about why we rejected
-        // them.
-    }
-}
-```
-
-Tips:
-
-- Having your `AdmitFunc`s focus on "one" thing is best practice: it allows you to be more granular in how you apply constraints to your cluster
--
-
-You can then create an [`AdmissionHandler`]() and pass it the `AdmitFunc`. Use your favorite HTTP router, and associate a path with your handler:
-
-```go
-	// We're using "gorilla/mux" as our router here.
-	r := mux.NewRouter().StrictSlash(true)
-	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-load-balancers", &admissioncontrol.AdmissionHandler{
-		AdmitFunc:  admissioncontrol.DenyPublicLoadBalancers,
-		Logger:     logger,
-		}).Methods(http.MethodPost)
-```
-
-The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a more complete example of how to configure & serve your admission controller endpoints.
-
----
 
 ### Troubleshooting
 

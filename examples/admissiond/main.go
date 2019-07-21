@@ -56,12 +56,18 @@ func main() {
 	).Methods(http.MethodGet)
 
 	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-services-gcp", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(
-			// We specify GCP here; create separate routes if you have an off-cluster
-			// admission controller across multiple cloud providers.
-			[]string{"kube-system", "istio-system"}, admissioncontrol.GCP),
-		Logger: logger,
+	admissions.Handle("/deny-ingresses", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyIngresses(nil),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/gcp", &admissioncontrol.AdmissionHandler{
+		// nil = don't whitelist any namespace.
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.GCP),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/azure", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.Azure),
+		Logger:    logger,
 	}).Methods(http.MethodPost)
 
 	// HTTP server
