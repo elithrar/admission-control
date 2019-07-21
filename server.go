@@ -120,8 +120,6 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 			}
 		}
 
-		// TODO(matt): Listen as plaintext if no TLSConfig is provided.
-
 		return
 	}()
 

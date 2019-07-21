@@ -16,20 +16,22 @@ import (
 	log "github.com/go-kit/kit/log"
 )
 
-// AdmitFunc checks whether an admission request is valid, and should return
-// an admission response that sets AdmissionResponse.Allowed to true or false as needed.
+// AdmitFunc checks whether an admission request is valid, and should return an
+// admission response that sets AdmissionResponse.Allowed to true or false as
+// needed.
 //
-// Users wishing to build their own admission handlers should satisfy the AdmitFunc type, and
-// pass it to an AdmissionHandler for serving over HTTP.
+// Users wishing to build their own admission handlers should satisfy the
+// AdmitFunc type, and pass it to an AdmissionHandler for serving over HTTP.
 //
 // Note: this mirrors the type in k8s source:
 // https://github.com/kubernetes/kubernetes/blob/v1.13.0/test/images/webhook/main.go#L43-L44
 type AdmitFunc func(reviewRequest *admission.AdmissionReview) (*admission.AdmissionResponse, error)
 
 // AdmissionHandler represents the configuration & associated endpoint for an
-// k8s ValidatingAdmissionController (or MutatingAdmissionController) webhook. Multiple 
-// instances can be created with distinct AdmitFuncs to handle different admission 
-// requirements.
+// k8s ValidatingAdmissionController (or MutatingAdmissionController) webhook.
+//
+// Multiple instances can be created with distinct AdmitFuncs to handle
+// different admission requirements.
 type AdmissionHandler struct {
 	// The AdmitFunc to invoke for this handler.
 	AdmitFunc AdmitFunc
