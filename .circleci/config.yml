@@ -31,8 +31,9 @@ jobs:
       - run:
           name: "Fetch dependencies"
           command: >
-            if [[ ${<< parameters.modules >>} = true ]]; then
+            if [[ << parameters.modules >> = true ]]; then
               go mod download
+              export GO111MODULE=on
             else
               go get -v ./...
             fi
@@ -40,20 +41,20 @@ jobs:
       - run:
           name: "Run golint"
           command: >
-            if [ ${<< parameters.latest >>} = true ] && [ ${<< parameters.golint >>} = true ]; then
+            if [ << parameters.latest >> = true ] && [ << parameters.golint >> = true ]; then
               go get -u golang.org/x/lint/golint
               golint ./...
             fi
       - run:
           name: "Run gofmt"
           command: >
-            if [[ ${<< parameters.latest >>} = true ]]; then
+            if [[ << parameters.latest >> = true ]]; then
               diff -u <(echo -n) <(gofmt -d -e .)
             fi
       - run:
           name: "Run go vet"
           command: >
-            if [[ ${<< parameters.latest >>} = true ]]; then
+            if [[ << parameters.latest >> = true ]]; then
               go vet -v ./...
             fi
       - run:
