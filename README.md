@@ -7,18 +7,89 @@
 
 A micro-framework for building Kubernetes [Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/).
 
+- Can be used as the target of both [`ValidatingWebhookConfiguration`]() and
+  [`MutatingWebhookConfiguration`]() - handlers can return simple allow/deny
+  responses, or patches (mutations) to submitted resources.
 - Provides an extensible `AdmissionHandler` type that accepts a custom
-  admission function (or `AdmitFunc`), making it easy for you to add new
+  admission function (called an `AdmitFunc`), making it easy for you to add new
   validating or mutating webhook endpoints.
-- Makes it easy to set up: 
-- Includes an example `AdmitFunc` for denying the creation of public Ingress
-  and Services in GKE.
-- Provides example `Deployment`, `Service` and `ValidatingWebhookConfiguration`
-  definitions for you to build off of.
+- Provides sample `Deployment`, `Service` and
+  `ValidatingWebhookConfiguration` definitions for you to build off of, and an
+  [`example webhook server`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond)
+  as additional guidance.
 
-> **Note**: Looking to extend admission-control for your own uses? It's first-and-foremost exposed as a library - simply import it as `github.com/elithrar/admission-control` and reference the example server at `cmd/admissiond`.
+---
 
-## Setup & Pre-requisites
+## Using the Framework
+
+### Built-In AdmitFuncs
+
+Admission Control provides a number of useful built-in _AdmitFuncs_, including:
+
+- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster; instead requiring the LB to be annotated as internal-only.
+- `DenyIngresses` - similar to the above, it prevents creating Ingresses (except in the namespaces you allow)
+
+More built-ins are coming soon! ⏳
+
+### Creating Your Own AdmitFunc
+
+The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple. You can provide a closure that returns an `AdmitFunc` type if you need to inject additional dependencies into your handler, and/or use a constructor function to do the same.
+
+The `AdmissionReview` type wraps the [`AdmissionRequest`](https://godoc.org/k8s.io/api/admission/v1beta1#AdmissionRequest), which can be serialized into a concrete type—such as a `Pod` or `Service`—and subsequently validated.
+
+An example `AdmitFunc` looks like this:
+
+```go
+// DenyDefaultLoadBalancerSourceRanges denies any kind: Service of type:
+// LoadBalancer that does not explicitly set .spec.loadBalancerSourceRanges -
+// which defaults to 0.0.0.0/0 (e.g. Internet traffic, if routable).
+//
+// This prevents LoadBalancers from being accidentally exposed to the Internet.
+func DenyDefaultLoadBalancerSourceRanges() AdmitFunc {
+    // Return a function of type AdmitFunc
+    return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+        // do work
+
+        // returning a non-nil AdmissionResponse and a nil error will allow admission.
+
+        // returning an error will deny Admission; the error string will be
+        // provided to the client and should be clear about why we rejected
+        // them.
+    }
+}
+```
+
+Tips:
+
+- Having your `AdmitFunc`s focus on "one" thing is best practice: it allows you to be more granular in how you apply constraints to your cluster
+- Returning an `AdmitFunc` from a constructor/closure will allow you to inject dependencies and/or configuration into your handler.
+
+You can then create an [`AdmissionHandler`](https://godoc.org/github.com/elithrar/admission-control#AdmissionHandler) and pass it the `AdmitFunc`. Use your favorite HTTP router, and associate a path with your handler:
+
+```go
+	// We're using "gorilla/mux" as our router here.
+	r := mux.NewRouter().StrictSlash(true)
+	admissions := r.PathPrefix("/admission-control").Subrouter()
+	admissions.Handle("/deny-default-load-balancer-source-ranges", &admissioncontrol.AdmissionHandler{
+		AdmitFunc:  admissioncontrol.DenyDefaultLoadBalancerSourceRanges(),
+		Logger:     logger,
+	}).Methods(http.MethodPost)
+```
+
+The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a more complete example of how to configure & serve your admission controller endpoints.
+
+---
+
+## Configuring & Deploying a Server
+
+There are two ways to deploy an admission controller:
+
+1. Within your Kubernetes cluster ("in-cluster"), where it runs as a Pod and is exposed as a Service to the rest of the cluster. This requires you to provision a TLS keypair, as admission controllers can only be accessed over TLS (HTTPS).
+2. Out-of-cluster, where it is accessible over HTTPS by the cluster. The admission controller could be hosted on another cluster, or more commonly, via a serverless platform like [Cloud Run](https://cloud.google.com/run/) or [Azure Container Instances](https://azure.microsoft.com/en-us/services/container-instances/).
+
+The documentation below covers deploying within a Kubernetes cluster (option 1).
+
+### Pre-requisites
 
 You'll need:
 
@@ -27,9 +98,21 @@ You'll need:
 - Experience writing Go - for implementing your own `AdmitFuncs` (refer to the example `DenyPublicServices` AdmitFunc included).
 - Experience building OCI (Docker) containers via `docker build` or similar.
 
+## Setup
+
+Setting up an Admission Controller in your Kubernetes cluster has three major steps:
+
+1. Generate a TLS keypair—Kubernetes only allows HTTPS (TLS) communication to Admission Controllers, whether in-cluster or hosted externally—and make the key & certificate available as a `Secret` within your cluster.
+
+2. Create a `Deployment` with your Admission-Control-based server, mounting the TLS keypair in your `Secret` as a volume in the container.
+
+3. Configure a `ValidatingWebhookConfiguration` that tells Kubernetes which objects should be validated, and the endpoint (URL) on your `Service` to validate them against.
+
+Your single server can act as the admission controller for any number of `ValidatingWebhookConfiguration` or `MutatingWebhookConfiguration` - each configuration can point to a specific URL on the same server.
+
 ## Configuring a Server
 
-> ⚠ *Note*: Admission webhooks must support HTTPS (TLS) connections; k8s does not allow webhooks to be reached over plain-text HTTP. If running in-cluster, the Service fronting the controller must be reachable via TCP port 443. External webhooks only need to satisfy the HTTPS requirement, but can be reached on any valid TCP port.
+> ⚠ **Reminder**: Admission webhooks must support HTTPS (TLS) connections; k8s does not allow webhooks to be reached over plain-text HTTP. If running in-cluster, the Service fronting the controller must be reachable via TCP port 443. External webhooks only need to satisfy the HTTPS requirement, but can be reached on any valid TCP port.
 
 Having your k8s cluster create a TLS certificate for you will dramatically simplify the configuration, as self-signed certificates require you to provide a `.webhooks.clientConfig.caBundle` value for verification.
 
@@ -73,6 +156,7 @@ webhooks:
       service:
         # This is the hostname our certificate needs in its Subject Alternative
         # Name array - name.namespace.svc
+        # If the certificate does NOT have this name, TLS validation will fail.
         name: admission-control-service
         namespace: default
         path: "/admission-control/deny-public-services"
@@ -130,23 +214,6 @@ Error from server (hello-service does not have the cloud.google.com/load-balance
 ```
 
 Perfect! 🎉
-
-### Extending Things
-
-The core type of the library is the [`AdmitFunc`](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc) - a function that takes a k8s `AdmissionReview` object and returns an `(*AdmissionResponse, error)` tuple.
-
-You can then pass pass the `AdmissionHandler` to your favorite HTTP router, and define a path that the function is avaiable on:
-
-```go
-	r := mux.NewRouter().StrictSlash(true)
-	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
-		AdmitFunc:  admissioncontrol.DenyPublicServices,
-		Logger:     logger,
-    }).Methods(http.MethodPost)
-```
-
-The example server [`admissiond`](https://github.com/elithrar/admission-control/tree/master/examples/admissiond) provides a step-by-step of how to configure & serve your admission controller endpoints.
 
 ---
 

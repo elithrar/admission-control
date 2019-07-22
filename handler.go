@@ -2,6 +2,7 @@ package admissioncontrol
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -32,15 +33,15 @@ type AdmissionHandler struct {
 	Logger log.Logger
 	// LimitBytes limits the size of objects the webhook will handle.
 	LimitBytes int64
-	// Deserializer supports deserializing k8s objects. It can be left null; the
+	// deserializer supports deserializing k8s objects. It can be left null; the
 	// ServeHTTP function will lazily instantiate a decoder instance.
-	Deserializer runtime.Decoder
+	deserializer runtime.Decoder
 }
 
 func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if ah.Deserializer == nil {
+	if ah.deserializer == nil {
 		runtimeScheme := runtime.NewScheme()
-		ah.Deserializer = serializer.NewCodecFactory(runtimeScheme).UniversalDeserializer()
+		ah.deserializer = serializer.NewCodecFactory(runtimeScheme).UniversalDeserializer()
 	}
 
 	if ah.LimitBytes <= 0 {
@@ -111,10 +112,13 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	}
 
 	incomingReview := admission.AdmissionReview{}
-	if _, _, err := ah.Deserializer.Decode(body, nil, &incomingReview); err != nil {
+	if _, _, err := ah.deserializer.Decode(body, nil, &incomingReview); err != nil {
 		return AdmissionError{false, "decoding the review request failed", err.Error()}
 	}
 
+	if incomingReview.Request == nil {
+		return errors.New("received invalid AdmissionReview")
+	}
 	reviewResponse, err := ah.AdmitFunc(&incomingReview)
 	if err != nil {
 		return AdmissionError{false, err.Error(), "the AdmitFunc returned an error"}

@@ -27,9 +27,9 @@ func main() {
 	// Get config
 	conf := &conf{}
 	flag.StringVar(&conf.TLSCertPath, "cert-path", "./cert.crt", "The path to the PEM-encoded TLS certificate")
-	flag.StringVar(&conf.TLSKeyPath, "key-path", "./key.key", "The path to the unencrypted TLS key.")
+	flag.StringVar(&conf.TLSKeyPath, "key-path", "./key.key", "The path to the unencrypted TLS key")
 	flag.StringVar(&conf.Port, "port", "8443", "The port to listen on (HTTPS).")
-	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service.")
+	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service")
 	flag.Parse()
 
 	// Set up logging
@@ -50,26 +50,39 @@ func main() {
 
 	// Set up the routes & logging middleware.
 	r := mux.NewRouter().StrictSlash(true)
-
 	r.HandleFunc("/healthz",
 		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
 	).Methods(http.MethodGet)
 
 	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-public-services", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyPublicServices,
+	admissions.Handle("/deny-ingresses", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyIngresses(nil),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/gcp", &admissioncontrol.AdmissionHandler{
+		// nil = don't whitelist any namespace.
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.GCP),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/azure", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.Azure),
+		Logger:    logger,
+	}).Methods(http.MethodPost)
+	admissions.Handle("/deny-public-services/aws", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.AWS),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
 	// HTTP server
+	timeout := time.Second * 15
 	srv := &http.Server{
 		Handler:           admissioncontrol.LoggingMiddleware(logger)(r),
 		TLSConfig:         tlsConf,
 		Addr:              ":" + conf.Port,
-		IdleTimeout:       time.Second * 15,
-		ReadTimeout:       time.Second * 15,
-		ReadHeaderTimeout: time.Second * 15,
-		WriteTimeout:      time.Second * 15,
+		IdleTimeout:       timeout,
+		ReadTimeout:       timeout,
+		ReadHeaderTimeout: timeout,
+		WriteTimeout:      timeout,
 	}
 
 	admissionServer, err := admissioncontrol.NewServer(

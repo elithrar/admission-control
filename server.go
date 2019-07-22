@@ -48,8 +48,12 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 		return nil, errors.New("a non-nil *http.Server must be provided")
 	}
 
+	// TODO(matt): Should warn here & support plaintext HTTP for proxied environments
 	if srv.TLSConfig == nil {
-		return nil, errors.New("the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS")
+		// Warn that TLS termination is required
+		logger.Log(
+			"msg", "the provided *http.Server has a nil TLSConfig. Admission webhooks must be served over TLS, or from behind a TLS-terminating proxy",
+		)
 	}
 
 	if logger == nil {
@@ -94,14 +98,29 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
 		)
 
-		if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			errs <- err
-			as.logger.Log(
-				"err", err.Error(),
-				"msg", "the server exited",
-			)
-			return
+		// Start a plaintext listener if no TLSConfig is provided
+		switch as.srv.TLSConfig {
+		case nil:
+			if err := as.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
+		default:
+			if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				errs <- err
+				as.logger.Log(
+					"err", err.Error(),
+					"msg", "the server exited",
+				)
+				return
+			}
 		}
+
+		// TODO(matt): Listen as plaintext if no TLSConfig is provided.
 
 		return
 	}()
