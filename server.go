@@ -48,7 +48,6 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 		return nil, errors.New("a non-nil *http.Server must be provided")
 	}
 
-	// TODO(matt): Should warn here & support plaintext HTTP for proxied environments
 	if srv.TLSConfig == nil {
 		// Warn that TLS termination is required
 		logger.Log(
@@ -77,8 +76,10 @@ func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 // 1. An interrupt (SIGINT; "Ctrl+C") or termination (SIGTERM) signal, such as
 // the SIGTERM most process managers send: e.g. as Kubernetes sends to a Pod:
 // https://kubernetes.io/docs/concepts/workloads/pods/pod/#termination-of-pods
+//
 // 2. When an error is returned from the listener on our server (fails to bind
 // to a port, terminal network issue, etc.)
+//
 // 3. When we receive a cancellation signal from the parent context; e.g. by
 // calling the returned CancelFunc from calling context.WithCancel(ctx)
 //
@@ -94,13 +95,13 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 	errs := make(chan error)
 	defer close(errs)
 	go func() {
-		as.logger.Log(
-			"msg", fmt.Sprintf("admission control listening on '%s'", as.srv.Addr),
-		)
-
 		// Start a plaintext listener if no TLSConfig is provided
 		switch as.srv.TLSConfig {
 		case nil:
+			as.logger.Log(
+				"msg", fmt.Sprintf("admission control listening on '%s' (plaintext HTTP)", as.srv.Addr),
+			)
+
 			if err := as.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				errs <- err
 				as.logger.Log(
@@ -110,6 +111,10 @@ func (as *AdmissionServer) Run(ctx context.Context) error {
 				return
 			}
 		default:
+			as.logger.Log(
+				"msg", fmt.Sprintf("admission control listening on '%s' (TLS)", as.srv.Addr),
+			)
+
 			if err := as.srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 				errs <- err
 				as.logger.Log(
