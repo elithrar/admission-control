@@ -127,7 +127,7 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	}
 	reviewResponse, err := ah.AdmitFunc(&incomingReview)
 	if err != nil {
-		return AdmissionError{false, err.Error(), "the AdmitFunc returned an error"}
+		return AdmissionError{false, err.Error(), reviewResponse.Result.Message}
 	}
 
 	reviewResponse.UID = incomingReview.Request.UID

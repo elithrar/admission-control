@@ -65,7 +65,7 @@ func DenyIngresses(ignoredNamespaces []string) AdmitFunc {
 				return nil, err
 			}
 
-			// Allow Ingresses in whitelisted namespaces.
+			// Ignore objects in whitelisted namespaces.
 			for _, ns := range ignoredNamespaces {
 				if ingress.Namespace == ns {
 					resp.Allowed = true
@@ -106,7 +106,7 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 			return nil, err
 		}
 
-		if service.Spec.Type != "LoadBalancer" {
+		if kind != "Service" || service.Spec.Type != "LoadBalancer" {
 			resp.Allowed = true
 			resp.Result.Message = fmt.Sprintf(
 				"DenyPublicLoadBalancers received a non-LoadBalancer type (%s)",
@@ -115,7 +115,7 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 			return resp, nil
 		}
 
-		// Don't deny Services in whitelisted namespaces
+		// Ignore objects in whitelisted namespaces.
 		for _, ns := range ignoredNamespaces {
 			if service.Namespace == ns {
 				resp.Allowed = true
@@ -129,15 +129,75 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 			return nil, fmt.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
 		}
 
-		// If we're missing any annotations, provide them in the AdmissionResponse so
+		// TODO(matt): If we're missing any annotations, provide them in the AdmissionResponse so
 		// the user can correct them.
-		if missing, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
-			resp.Result.Message = fmt.Sprintf("%s object is missing the required annotations: %v", kind, missing)
+		if _, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
 			return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 		}
 
+		// No missing or invalid annotations; allow admission
 		resp.Allowed = true
+		return resp, nil
+	}
+}
 
+// EnforcePodAnnotations ensures that Pods have the required annotations by
+// looking for a strict (case-sensitive) key-match, and then running the
+// matchFunc (a func(string) bool) over the value.
+//
+// This allows the caller to perform flexible matching - checking for valid DNS names or a list of accepted values - rather than having to iterate over all possible values, which may not be possible.
+func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[string]func(string) bool) AdmitFunc {
+	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+		kind := admissionReview.Request.Kind.Kind
+		resp := newDefaultDenyResponse()
+
+		pod := core.Pod{}
+		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+		if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &pod); err != nil {
+			return nil, err
+		}
+
+		// Ignore objects in whitelisted namespaces.
+		for _, ns := range ignoredNamespaces {
+			if pod.Namespace == ns {
+				resp.Allowed = true
+				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", pod.Namespace)
+				return resp, nil
+			}
+		}
+
+		annotations := pod.ObjectMeta.Annotations
+		// TODO(matt): If we're missing any annotations, provide them in the AdmissionResponse so
+		// the user can correct them.
+		missing := make(map[string]string)
+
+		// We check whether the (strictly matched) annotation key exists, and then run
+		// our user-provided matchFunc against it. If we're missing any keys, or the
+		// value for a key does not match, admission is rejected.
+		for requiredKey, matchFunc := range requiredAnnotations {
+			if matchFunc == nil {
+				return nil, fmt.Errorf("cannot validate annotations (%s) with a nil matchFunc", requiredKey)
+			}
+
+			if existingVal, ok := annotations[requiredKey]; !ok {
+				// key does not exist
+				// add it to the missing annotations list for logging
+				missing[requiredKey] = ""
+			} else {
+				// key DOES exist
+				// but does the val match?
+				if matched := matchFunc(existingVal); !matched {
+					// value did not match
+				}
+			}
+		}
+
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("the submitted %s is missing required annotations: %v", kind, missing)
+		}
+
+		// No missing or invalid annotations; allow admission
+		resp.Allowed = true
 		return resp, nil
 	}
 }
@@ -170,17 +230,6 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 
 	return nil, true
 }
-
-// func EnforcePodAnnotations(ignoredNamespaces []string, matchFunc func(string, string) bool) AdmitFunc {
-// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 		kind := admissionReview.Request.Kind.Kind
-// 		resp := newDefaultDenyResponse()
-//
-//		TODO(matt): enforce annotations on a Pod
-//
-// 		return resp, nil
-// 	}
-// }
 
 // func DenyContainersWithMutableTags(ignoredNamespaces []string, allowedTags []string) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {

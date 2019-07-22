@@ -24,10 +24,17 @@ A micro-framework for building Kubernetes [Admission Controllers](https://kubern
 
 ### Built-In AdmitFuncs
 
-Admission Control provides a number of useful built-in _AdmitFuncs_, including:
+Admission Control provides a number of useful built-in [**AdmitFuncs**](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc), including:
 
-- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster; instead requiring the LB to be annotated as internal-only.
-- `DenyIngresses` - similar to the above, it prevents creating Ingresses (except in the namespaces you allow)
+- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster, instead requiring the LB to be annotated as internal-only.
+- `DenyIngresses` - similar to the above, it prevents creating Ingresses
+  (except in the namespaces you allow)
+- `EnforcePodAnnotations` - ensures that admitted Pods have (at least) the
+  required set of annotations. Annotation _values_ are matched using a
+  `matchFunc` (a `func(string) bool`) that allows flexible matching. For
+  example, a matchFunc could wrap the
+  [`IsDomainName`](https://godoc.org/github.com/miekg/dns#IsDomainName)
+  function from `miekg/dns`, or reference a `[]string` of accepted values.
 
 More built-ins are coming soon! ⏳
 
