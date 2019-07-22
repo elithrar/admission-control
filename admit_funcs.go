@@ -90,7 +90,8 @@ func DenyIngresses(ignoredNamespaces []string) AdmitFunc {
 // The required annotations are documented at
 // https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 //
-// Services with a .spec.type other than LoadBalancer will NOT be rejected by this handler.
+// Services with a .spec.type other than LoadBalancer will NOT be rejected by
+// this handler.
 //
 // Providing an empty/nil list of ignoredNamespaces will reject LoadBalancers
 // across all namespaces.
@@ -117,7 +118,6 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 		// Don't deny Services in whitelisted namespaces
 		for _, ns := range ignoredNamespaces {
 			if service.Namespace == ns {
-				// this namespace is whitelisted
 				resp.Allowed = true
 				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", service.Namespace)
 				return resp, nil
