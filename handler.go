@@ -16,8 +16,10 @@ import (
 	log "github.com/go-kit/kit/log"
 )
 
-// AdmitFunc validates whether an admission request is valid, and should return
-// an admission response that sets Allowed to true or false as needed.
+// AdmitFunc checks whether an admission request is valid, and should return
+// an admission response that sets AdmissionResponse.Allowed to true or false as needed.
+//
+// Users wishing to build their own admission handlers should satify the AdmitFunc type.
 //
 // Note: this mirrors the type in k8s source:
 // https://github.com/kubernetes/kubernetes/blob/v1.13.0/test/images/webhook/main.go#L43-L44
