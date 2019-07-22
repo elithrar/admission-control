@@ -24,7 +24,10 @@ jobs:
         default: true
     steps:
       - checkout
-      - run: go version
+      - run:
+          name: "Print the Go version"
+          command: >
+            go version
       - run:
           name: "Fetch dependencies"
           command: >
@@ -53,18 +56,26 @@ jobs:
             if [[ ${<< parameters.latest >>} = true ]]; then
               go vet -v ./...
             fi
-      - run: go test -v -race ./...
-      - run: go build -v
+      - run:
+          name: "Run go test (+ race detector)"
+          command: >
+            go test -v -race ./...
 
-  "build-container":
+  "build-container": &build-container
     docker:
       - image: docker:18
     working_directory: /go/src/github.com/elithrar/admission-control
     steps:
       - checkout
       - setup_remote_docker
-      - run: docker version
-      - run: docker build -t elithrar/admissiond-example .
+      - run:
+          name: "Print the Docker version"
+          command: >
+            docker version
+      - run:
+          name: "Build the container image"
+          command: >
+            docker build -t elithrar/admissiond-example .
 
 workflows:
   build:
