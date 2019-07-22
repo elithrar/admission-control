@@ -145,11 +145,24 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 // looking for a strict (case-sensitive) key-match, and then running the
 // matchFunc (a func(string) bool) over the value.
 //
-// This allows the caller to perform flexible matching - checking for valid DNS names or a list of accepted values - rather than having to iterate over all possible values, which may not be possible.
+// This allows the caller to perform flexible matching - checking for valid DNS
+// names or a list of accepted values - rather than having to iterate over all
+// possible values, which may not be possible.
 func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[string]func(string) bool) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind
 		resp := newDefaultDenyResponse()
+
+		// TODO(matt): Handle PodTemplateSpec as well
+		// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#pod-v1-core
+		switch kind {
+		case "Pod":
+			//
+		case "Deployment":
+			//
+		case "StatefulSet":
+			//
+		}
 
 		pod := core.Pod{}
 		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
@@ -167,10 +180,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		}
 
 		annotations := pod.ObjectMeta.Annotations
-		// TODO(matt): If we're missing any annotations, provide them in the AdmissionResponse so
-		// the user can correct them.
 		missing := make(map[string]string)
-
 		// We check whether the (strictly matched) annotation key exists, and then run
 		// our user-provided matchFunc against it. If we're missing any keys, or the
 		// value for a key does not match, admission is rejected.
@@ -180,15 +190,13 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 			}
 
 			if existingVal, ok := annotations[requiredKey]; !ok {
-				// key does not exist
-				// add it to the missing annotations list for logging
+				// Key does not exist; add it to the missing annotations list
 				missing[requiredKey] = ""
 			} else {
-				// key DOES exist
-				// but does the val match?
 				if matched := matchFunc(existingVal); !matched {
-					// value did not match
+					missing[requiredKey] = ""
 				}
+				// Key exists & matchFunc returned OK.
 			}
 		}
 

@@ -1,6 +1,8 @@
 package admissioncontrol
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	admission "k8s.io/api/admission/v1beta1"
@@ -8,13 +10,14 @@ import (
 )
 
 type objectTest struct {
-	testName          string
-	cloudProvider     CloudProvider
-	kind              meta.GroupVersionKind
-	rawObject         []byte
-	ignoredNamespaces []string
-	expectedMessage   string
-	shouldAllow       bool
+	testName            string
+	cloudProvider       CloudProvider
+	requiredAnnotations map[string]func(string) bool
+	kind                meta.GroupVersionKind
+	rawObject           []byte
+	ignoredNamespaces   []string
+	expectedMessage     string
+	shouldAllow         bool
 }
 
 // TestDenyIngress validates that the DenyIngress AdmitFunc correctly rejects
@@ -323,4 +326,91 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnforcePodAnnotations(t *testing.T) {
+	var podDeniedError = "the submitted Pod is missing required annotations:"
+	var denyTests = []objectTest{
+		{
+			testName: "Allow Pod with required annotations",
+			requiredAnnotations: map[string]func(string) bool{
+				"questionable.services/hostname": func(s string) bool { return true },
+				"buildVersion":                   func(s string) bool { return strings.HasPrefix(s, "v") },
+			},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: podDeniedError,
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject Pod with missing annotations",
+			requiredAnnotations: map[string]func(string) bool{
+				"questionable.services/hostname": func(s string) bool { return true },
+			},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[questionable.services/hostname:]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Reject Pod with invalid annotation value",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Don't reject Services",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:   []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			shouldAllow: true,
+		},
+	}
+
+	for _, tt := range denyTests {
+		t.Run(tt.testName, func(t *testing.T) {
+			incomingReview := admission.AdmissionReview{
+				Request: &admission.AdmissionRequest{},
+			}
+			incomingReview.Request.Kind = tt.kind
+			incomingReview.Request.Object.Raw = tt.rawObject
+
+			resp, err := EnforcePodAnnotations(tt.ignoredNamespaces, tt.requiredAnnotations)(&incomingReview)
+			if err != nil {
+				if tt.expectedMessage != err.Error() {
+					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+				}
+
+				if tt.shouldAllow {
+					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				}
+
+				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				return
+			}
+
+			if resp.Allowed != tt.shouldAllow {
+				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+			}
+		})
+	}
+
 }
