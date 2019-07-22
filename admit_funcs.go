@@ -50,9 +50,9 @@ func newDefaultDenyResponse() *admission.AdmissionResponse {
 // DenyIngresses denies any kind: Ingress from being deployed to the cluster,
 // except for any explicitly allowed namespaces (e.g. istio-system).
 //
-// Providing an empty/nil list of allowedNamespaces will reject Ingress objects
+// Providing an empty/nil list of ignoredNamespaces will reject Ingress objects
 // across all namespaces. Kinds other than Ingress will be allowed.
-func DenyIngresses(allowedNamespaces []string) AdmitFunc {
+func DenyIngresses(ignoredNamespaces []string) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
 		resp := newDefaultDenyResponse()
@@ -66,10 +66,10 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 			}
 
 			// Allow Ingresses in whitelisted namespaces.
-			for _, ns := range allowedNamespaces {
+			for _, ns := range ignoredNamespaces {
 				if ingress.Namespace == ns {
 					resp.Allowed = true
-					resp.Result.Message = "allowing admission: %s namespace is whitelisted"
+					resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", ingress.Namespace)
 					return resp, nil
 				}
 			}
@@ -91,7 +91,10 @@ func DenyIngresses(allowedNamespaces []string) AdmitFunc {
 // https://kubernetes.io/docs/concepts/services-networking/#internal-load-balancer
 //
 // Services with a .spec.type other than LoadBalancer will NOT be rejected by this handler.
-func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider) AdmitFunc {
+//
+// Providing an empty/nil list of ignoredNamespaces will reject LoadBalancers
+// across all namespaces.
+func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind
 		resp := newDefaultDenyResponse()
@@ -112,9 +115,12 @@ func DenyPublicLoadBalancers(allowedNamespaces []string, provider CloudProvider)
 		}
 
 		// Don't deny Services in whitelisted namespaces
-		for _, ns := range allowedNamespaces {
+		for _, ns := range ignoredNamespaces {
 			if service.Namespace == ns {
 				// this namespace is whitelisted
+				resp.Allowed = true
+				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", service.Namespace)
+				return resp, nil
 			}
 		}
 
@@ -165,18 +171,7 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 	return nil, true
 }
 
-// func DenyContainersWithMutableTags(allowedNamespaces []string, allowedTags []string) AdmitFunc {
-// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 		kind := admissionReview.Request.Kind.Kind
-// 		resp := newDefaultDenyResponse()
-//
-//		TODO(matt): Range over Containers in a Pod spec, parse image URL and inspect tags.
-//
-// 		return resp, nil
-// 	}
-// }
-
-// func EnforcePodAnnotations(allowedNamespaces []string, matchFunc func(string, string) bool) AdmitFunc {
+// func EnforcePodAnnotations(ignoredNamespaces []string, matchFunc func(string, string) bool) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
 // 		resp := newDefaultDenyResponse()
@@ -187,7 +182,18 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 // 	}
 // }
 
-// func AddAnnotationsToPod(allowedNamespaces []string, newAnnotations map[string]string) AdmitFunc {
+// func DenyContainersWithMutableTags(ignoredNamespaces []string, allowedTags []string) AdmitFunc {
+// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+// 		kind := admissionReview.Request.Kind.Kind
+// 		resp := newDefaultDenyResponse()
+//
+//		TODO(matt): Range over Containers in a Pod spec, parse image URL and inspect tags.
+//
+// 		return resp, nil
+// 	}
+// }
+
+// func AddAnnotationsToPod(ignoredNamespaces []string, newAnnotations map[string]string) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
 // 		resp := newDefaultDenyResponse()
