@@ -356,6 +356,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Kind:    "Pod",
 				Version: "v1",
 			},
+			// missing the "hostname" annotation
 			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
 			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[questionable.services/hostname:]"),
 			shouldAllow:     false,
@@ -369,19 +370,40 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Kind:    "Pod",
 				Version: "v1",
 			},
+			// buildVersion is missing the "v" in the version number
 			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
 			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:]"),
 			shouldAllow:     false,
 		},
 		{
-			testName: "Don't reject Services",
+			testName: "Unhandled Kinds (Service) are correctly rejected",
 			kind: meta.GroupVersionKind{
 				Group:   "",
 				Kind:    "Service",
 				Version: "v1",
 			},
-			rawObject:   []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
-			shouldAllow: true,
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: "",
+			shouldAllow:     false,
+		},
+		{
+			testName: "Ensure Pods in a Deployment have required annotations",
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Ensure Pods in a DaemonSet have required annotations",
+		},
+		{
+			testName: "Ensure Pods in a StatefulSet have required annotations",
+		},
+		{
+			testName: "Ensure Pods in a Job have required annotations",
 		},
 	}
 

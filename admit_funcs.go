@@ -4,10 +4,13 @@ import (
 	"fmt"
 
 	admission "k8s.io/api/admission/v1beta1"
+	apps "k8s.io/api/apps/v1"
+	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
@@ -148,38 +151,87 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 // This allows the caller to perform flexible matching - checking for valid DNS
 // names or a list of accepted values - rather than having to iterate over all
 // possible values, which may not be possible.
+//
+// EnforcePodAnnotations can inspect Pods, Deployments, StatefulSets, DaemonSets &
+// Jobs.
+//
+// Unknown object kinds are rejected. You can create multiple versions of
+// this AdmitFunc for a given ValidatingAdmissionWebhook configuration if you
+// wish to apply different configurations per kind or namespace.
 func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[string]func(string) bool) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind
 		resp := newDefaultDenyResponse()
 
-		// TODO(matt): Handle PodTemplateSpec as well
+		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+
+		// We handle all built-in Kinds that include a PodTemplateSpec, as described here:
 		// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#pod-v1-core
+		//
+		var obj runtime.Object
+		accessor := meta.NewAccessor()
+
+		// Extract the necessary metadata from our known Kinds
 		switch kind {
 		case "Pod":
-			//
+			pod := core.Pod{}
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &pod); err != nil {
+				return nil, err
+			}
+
+			obj = &pod
 		case "Deployment":
-			//
+			deployment := apps.Deployment{}
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &deployment); err != nil {
+				return nil, err
+			}
+
+			obj = &deployment
 		case "StatefulSet":
-			//
+			statefulset := apps.StatefulSet{}
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &statefulset); err != nil {
+				return nil, err
+			}
+
+			obj = &statefulset
+		case "DaemonSet":
+			daemonset := apps.DaemonSet{}
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &daemonset); err != nil {
+				return nil, err
+			}
+
+			obj = &daemonset
+		case "Job":
+			job := batch.Job{}
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &job); err != nil {
+				return nil, err
+			}
+
+			obj = &job
+		default:
+			// TODO(matt): except for whitelisted namespaces
+			return nil, fmt.Errorf("unsupported object Kind '%s' has been rejected", kind)
 		}
 
-		pod := core.Pod{}
-		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
-		if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &pod); err != nil {
+		namespace, err := accessor.Namespace(obj)
+		if err != nil {
+			return nil, err
+		}
+
+		annotations, err := accessor.Annotations(obj)
+		if err != nil {
 			return nil, err
 		}
 
 		// Ignore objects in whitelisted namespaces.
 		for _, ns := range ignoredNamespaces {
-			if pod.Namespace == ns {
+			if namespace == ns {
 				resp.Allowed = true
-				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", pod.Namespace)
+				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", namespace)
 				return resp, nil
 			}
 		}
 
-		annotations := pod.ObjectMeta.Annotations
 		missing := make(map[string]string)
 		// We check whether the (strictly matched) annotation key exists, and then run
 		// our user-provided matchFunc against it. If we're missing any keys, or the
@@ -250,7 +302,7 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 // 	}
 // }
 
-// func AddAnnotationsToPod(ignoredNamespaces []string, newAnnotations map[string]string) AdmitFunc {
+// func AddAnnotationsToPods(ignoredNamespaces []string, newAnnotations map[string]string) AdmitFunc {
 // 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 // 		kind := admissionReview.Request.Kind.Kind
 // 		resp := newDefaultDenyResponse()
