@@ -26,17 +26,25 @@ A micro-framework for building Kubernetes [Admission Controllers](https://kubern
 
 Admission Control provides a number of useful built-in [**AdmitFuncs**](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc), including:
 
-- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster, instead requiring the LB to be annotated as internal-only.
+- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster, instead requiring the LB to be
+  annotated as internal-only, by looking for the well-known annotations for
+  major cloud providers.
 - `DenyIngresses` - similar to the above, it prevents creating Ingresses
-  (except in the namespaces you allow)
+  (except in the namespaces you allow). This can be useful for limiting which
+  namespaces can expose services via common Ingress types.
 - `EnforcePodAnnotations` - ensures that admitted Pods have (at least) the
   required set of annotations. Annotation _values_ are matched using a
   `matchFunc` (a `func(string) bool`) that allows flexible matching. For
   example, a matchFunc could wrap the
   [`IsDomainName`](https://godoc.org/github.com/miekg/dns#IsDomainName)
-  function from `miekg/dns`, or reference a `[]string` of accepted values.
+  function from `miekg/dns`, or reference a `[]string` of accepted values. It
+  is strongly suggested you use a
+  [`namespaceSelector`](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.13/#webhook-v1beta1-admissionregistration)
+  as part of your webhook configuration to only apply this to specific
+  namespaces, and/or set the `ignoreNamespaces` argument to include
+  `kube-system`, as annotation validation will otherwise include system Pods.
 
-More built-ins are coming soon! ⏳
+More built-ins are coming soon, and suggestions are welcome! ⏳
 
 ### Creating Your Own AdmitFunc
 
