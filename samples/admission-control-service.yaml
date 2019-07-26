@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: admission-controld
-          image: gcr.io/optimum-rock-145719/admissiond-example:latest
+          image: gcr.io/optimum-rock-145719/admission-control-example:latest
           command: ["/admissiond"]
           env:
             - name: HOSTNAME
