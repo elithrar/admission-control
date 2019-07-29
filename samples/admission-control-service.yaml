@@ -15,12 +15,12 @@ spec:
         app: admission-control
     spec:
       containers:
-        - name: admission-controld
+        - name: admission-control-example
           image: gcr.io/optimum-rock-145719/admission-control-example:latest
           command: ["/admissiond"]
           env:
             - name: HOSTNAME
-              value: "admissiond.questionable.services"
+              value: "admission-c0ntrol-example.questionable.services"
           args:
             [
               "-host",
