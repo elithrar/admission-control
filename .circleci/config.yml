@@ -4,11 +4,6 @@ jobs:
   # Base test configuration for Go library tests Each distinct version should
   # inherit this base, and override (at least) the container image used.
   "test": &test
-    docker:
-      - image: "circleci/golang:<< parameters.v >>"
-    working_directory: /go/src/github.com/elithrar/admission-control
-    environment:
-      GO111MODULE: "on"
     parameters:
       v:
         type: string
@@ -22,6 +17,15 @@ jobs:
       modules:
         type: boolean
         default: true
+      goproxy:
+        type: string
+        default: "https://proxy.golang.org"
+    docker:
+      - image: "circleci/golang:<< parameters.v >>"
+    working_directory: /go/src/github.com/elithrar/admission-control
+    environment:
+      GO111MODULE: "on"
+      GOPROXY: "<< parameters.goproxy >>"
     steps:
       - checkout
       - run:
