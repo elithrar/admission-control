@@ -7,10 +7,12 @@ import (
 
 	admission "k8s.io/api/admission/v1beta1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 type objectTest struct {
 	testName            string
+	admitFunc           AdmitFunc
 	cloudProvider       CloudProvider
 	requiredAnnotations map[string]func(string) bool
 	kind                meta.GroupVersionKind
@@ -18,6 +20,20 @@ type objectTest struct {
 	ignoredNamespaces   []string
 	expectedMessage     string
 	shouldAllow         bool
+}
+
+func newTestAdmissionRequest(kind meta.GroupVersionKind, object []byte, expected bool) *admission.AdmissionReview {
+	ar := &admission.AdmissionReview{
+		Request: &admission.AdmissionRequest{
+			Kind: kind,
+			Object: runtime.RawExtension{
+				Raw: object,
+			},
+		},
+		Response: &admission.AdmissionResponse{},
+	}
+
+	return ar
 }
 
 // TestDenyIngress validates that the DenyIngress AdmitFunc correctly rejects

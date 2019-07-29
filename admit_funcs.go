@@ -129,13 +129,13 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 
 		expectedAnnotations, ok := ilbAnnotations[provider]
 		if !ok {
-			return nil, fmt.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
+			return resp, fmt.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
 		}
 
 		// TODO(matt): If we're missing any annotations, provide them in the AdmissionResponse so
 		// the user can correct them.
 		if _, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
-			return nil, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
+			return resp, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 		}
 
 		// No missing or invalid annotations; allow admission
@@ -238,7 +238,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		// value for a key does not match, admission is rejected.
 		for requiredKey, matchFunc := range requiredAnnotations {
 			if matchFunc == nil {
-				return nil, fmt.Errorf("cannot validate annotations (%s) with a nil matchFunc", requiredKey)
+				return resp, fmt.Errorf("cannot validate annotations (%s) with a nil matchFunc", requiredKey)
 			}
 
 			if existingVal, ok := annotations[requiredKey]; !ok {
@@ -253,7 +253,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		}
 
 		if len(missing) > 0 {
-			return nil, fmt.Errorf("the submitted %s is missing required annotations: %v", kind, missing)
+			return resp, fmt.Errorf("the submitted %s is missing required annotations: %v", kind, missing)
 		}
 
 		// No missing or invalid annotations; allow admission
