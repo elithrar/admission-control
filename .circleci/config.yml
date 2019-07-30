@@ -19,7 +19,7 @@ jobs:
         default: true
       goproxy:
         type: string
-        default: "https://proxy.golang.org"
+        default: ""
     docker:
       - image: "circleci/golang:<< parameters.v >>"
     working_directory: /go/src/github.com/elithrar/admission-control
