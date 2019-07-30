@@ -210,7 +210,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 			obj = &job
 		default:
 			// TODO(matt): except for whitelisted namespaces
-			return nil, fmt.Errorf("unsupported object Kind '%s' has been rejected", kind)
+			return nil, fmt.Errorf("the submitted Kind is not supported by this admission handler: %s", kind)
 		}
 
 		namespace, err := accessor.Namespace(obj)

@@ -345,6 +345,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 }
 
 func TestEnforcePodAnnotations(t *testing.T) {
+	var unsupportedKindError = "the submitted Kind is not supported by this admission handler:"
 	var podDeniedError = "the submitted Pod is missing required annotations:"
 	var denyTests = []objectTest{
 		{
@@ -399,7 +400,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
-			expectedMessage: "",
+			expectedMessage: fmt.Sprintf("%s %s", unsupportedKindError, "Service"),
 			shouldAllow:     false,
 		},
 		{
@@ -412,15 +413,15 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			expectedMessage: "",
 			shouldAllow:     true,
 		},
-		{
-			testName: "Ensure Pods in a DaemonSet have required annotations",
-		},
-		{
-			testName: "Ensure Pods in a StatefulSet have required annotations",
-		},
-		{
-			testName: "Ensure Pods in a Job have required annotations",
-		},
+		// {
+		// 	testName: "Ensure Pods in a DaemonSet have required annotations",
+		// },
+		// {
+		// 	testName: "Ensure Pods in a StatefulSet have required annotations",
+		// },
+		// {
+		// 	testName: "Ensure Pods in a Job have required annotations",
+		// },
 	}
 
 	for _, tt := range denyTests {
