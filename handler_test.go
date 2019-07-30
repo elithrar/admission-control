@@ -87,8 +87,11 @@ func TestAdmissionHandler(t *testing.T) {
 
 			handler.ServeHTTP(rr, req)
 
-			// Did get a non-nil response, and did it return a valid AdmissionReview
-			// object?
+			// Testing for:
+			// 1. Did we get a non-nil response body?
+			// 2. Did it return a valid AdmissionReview object?
+			// 3. Was the status code as expected?
+			// 4. Did the AdmissionReview object set Allowed to the expected value?
 			if rr.Body.Len() == 0 {
 				t.Fatalf("received an empty response body")
 			}
@@ -98,7 +101,6 @@ func TestAdmissionHandler(t *testing.T) {
 				t.Fatalf("couldn't marshal the review response: %v", err)
 			}
 
-			// Was the admission request correctly allowed?
 			if allowed := review.Response.Allowed; allowed != tt.shouldPass {
 				t.Fatalf("invalid review response: got allowed: %t (want %t)", allowed, tt.shouldPass)
 			}
