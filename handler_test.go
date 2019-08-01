@@ -64,7 +64,7 @@ func TestAdmissionHandler(t *testing.T) {
 			shouldPass: false,
 		},
 		{
-			testName:  "Return an error for a malformed outgoing AdmissionReview",
+			testName: "Return an error for a malformed outgoing AdmissionReview",
 			admitFunc: func(_ *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 				return nil, nil
 			},
