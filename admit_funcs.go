@@ -54,7 +54,9 @@ func newDefaultDenyResponse() *admission.AdmissionResponse {
 // except for any explicitly allowed namespaces (e.g. istio-system).
 //
 // Providing an empty/nil list of ignoredNamespaces will reject Ingress objects
-// across all namespaces. Kinds other than Ingress will be allowed.
+// across all namespaces.
+//
+// Kinds other than Ingress will be allowed.
 func DenyIngresses(ignoredNamespaces []string) AdmitFunc {
 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
 		kind := admissionReview.Request.Kind.Kind // Base Kind - e.g. "Service" as opposed to "v1/Service"
