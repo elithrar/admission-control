@@ -63,6 +63,16 @@ func TestAdmissionHandler(t *testing.T) {
 			},
 			shouldPass: false,
 		},
+		{
+			testName:  "Return an error for a malformed outgoing AdmissionReview",
+			admitFunc: func(_ *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+				return nil, nil
+			},
+			incomingReview: &admission.AdmissionReview{
+				Request: &admission.AdmissionRequest{},
+			},
+			shouldPass: false,
+		},
 	}
 
 	for _, tt := range handlerTests {

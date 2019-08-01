@@ -132,6 +132,10 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 		return AdmissionError{false, err.Error(), "the AdmitFunc returned an error"}
 	}
 
+	if reviewResponse == nil {
+		return AdmissionError{false, "the AdmitFunc returned an empty AdmissionReview", ""}
+	}
+
 	reviewResponse.UID = incomingReview.Request.UID
 	review := admission.AdmissionReview{
 		Response: reviewResponse,
