@@ -137,10 +137,10 @@ func TestDenyIngress(t *testing.T) {
 				}
 
 				if tt.shouldAllow {
-					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				}
 
-				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				return
 			}
 
@@ -330,10 +330,10 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 				}
 
 				if tt.shouldAllow {
-					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				}
 
-				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				return
 			}
 
@@ -375,7 +375,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			},
 			// missing the "hostname" annotation
 			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
-			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[questionable.services/hostname:]"),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[questionable.services/hostname:key was not found]"),
 			shouldAllow:     false,
 		},
 		{
@@ -389,7 +389,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			},
 			// buildVersion is missing the "v" in the version number
 			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
-			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:]"),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:value did not match]"),
 			shouldAllow:     false,
 		},
 		{
@@ -403,24 +403,87 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			expectedMessage: fmt.Sprintf("%s %s", unsupportedKindError, "Service"),
 			shouldAllow:     false,
 		},
+		// {
+		// 	testName: "Allow correctly annotated Pods in a Deployment",
+		// 	requiredAnnotations: map[string]func(string) bool{
+		// 		"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "apps",
+		// 		Kind:    "Deployment",
+		// 		Version: "v1",
+		// 	},
+		// 	expectedMessage: "",
+		// 	shouldAllow:     true,
+		// },
+		// {
+		// 	testName: "Reject unannotated Pods in a Deployment",
+		// 	requiredAnnotations: map[string]func(string) bool{
+		// 		"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "apps",
+		// 		Kind:    "Deployment",
+		// 		Version: "v1",
+		// 	},
+		// 	expectedMessage: "",
+		// 	shouldAllow:     false,
+		// },
 		{
-			testName: "Ensure Pods in a Deployment have required annotations",
+			testName: "Allow correctly annotated Pods in a DaemonSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
 			kind: meta.GroupVersionKind{
 				Group:   "apps",
-				Kind:    "Deployment",
+				Kind:    "DaemonSet",
 				Version: "v1",
 			},
+			rawObject:       []byte(`{"kind":"DaemonSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-daemonset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
 			expectedMessage: "",
 			shouldAllow:     true,
 		},
+		{
+			testName: "Reject unannotated Pods in a DaemonSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "DaemonSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"DaemonSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-daemonset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: "the submitted DaemonSet is missing required annotations: map[buildVersion:key was not found]",
+			shouldAllow:     false,
+		},
 		// {
-		// 	testName: "Ensure Pods in a DaemonSet have required annotations",
+		// 	testName: "Allow correctly annotated Pods in a StatefulSet",
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "apps",
+		// 		Kind:    "StatefulSet",
+		// 		Version: "v1",
+		// 	},
 		// },
 		// {
-		// 	testName: "Ensure Pods in a StatefulSet have required annotations",
+		// 	testName: "Reject unannotated Pods in a StatefulSet",
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "apps",
+		// 		Kind:    "StatefulSet",
+		// 		Version: "v1",
+		// 	},
 		// },
 		// {
-		// 	testName: "Ensure Pods in a Job have required annotations",
+		// 	testName: "Allow correctly annotated Pods in a Job",
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "batch",
+		// 		Kind:    "Job",
+		// 		Version: "v1",
+		// 	},
+		// },
+		// {
+		// 	testName: "Reject unannotated Pods in a Job",
+		// 	kind: meta.GroupVersionKind{
+		// 		Group:   "batch",
+		// 		Kind:    "Job",
+		// 		Version: "v1",
+		// 	},
 		// },
 	}
 
@@ -439,10 +502,10 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				}
 
 				if tt.shouldAllow {
-					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				}
 
-				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				return
 			}
 

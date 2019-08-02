@@ -10,7 +10,6 @@ import (
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
@@ -169,10 +168,8 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 
 		// We handle all built-in Kinds that include a PodTemplateSpec, as described here:
 		// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#pod-v1-core
-		//
-		var obj runtime.Object
-		accessor := meta.NewAccessor()
-
+		var namespace string
+		annotations := make(map[string]string)
 		// Extract the necessary metadata from our known Kinds
 		switch kind {
 		case "Pod":
@@ -181,48 +178,43 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 				return nil, err
 			}
 
-			obj = &pod
+			namespace = pod.GetNamespace()
+			annotations = pod.GetAnnotations()
 		case "Deployment":
 			deployment := apps.Deployment{}
 			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &deployment); err != nil {
 				return nil, err
 			}
 
-			obj = &deployment
+			deployment.GetNamespace()
+			annotations = deployment.Spec.Template.GetAnnotations()
 		case "StatefulSet":
 			statefulset := apps.StatefulSet{}
 			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &statefulset); err != nil {
 				return nil, err
 			}
 
-			obj = &statefulset
+			namespace = statefulset.GetNamespace()
+			annotations = statefulset.Spec.Template.GetAnnotations()
 		case "DaemonSet":
 			daemonset := apps.DaemonSet{}
 			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &daemonset); err != nil {
 				return nil, err
 			}
 
-			obj = &daemonset
+			namespace = daemonset.GetNamespace()
+			annotations = daemonset.Spec.Template.GetAnnotations()
 		case "Job":
 			job := batch.Job{}
 			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &job); err != nil {
 				return nil, err
 			}
 
-			obj = &job
+			namespace = job.Spec.Template.GetNamespace()
+			annotations = job.Spec.Template.GetAnnotations()
 		default:
 			// TODO(matt): except for whitelisted namespaces
 			return nil, fmt.Errorf("the submitted Kind is not supported by this admission handler: %s", kind)
-		}
-
-		namespace, err := accessor.Namespace(obj)
-		if err != nil {
-			return nil, err
-		}
-
-		annotations, err := accessor.Annotations(obj)
-		if err != nil {
-			return nil, err
 		}
 
 		// Ignore objects in whitelisted namespaces.
@@ -245,10 +237,10 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 
 			if existingVal, ok := annotations[requiredKey]; !ok {
 				// Key does not exist; add it to the missing annotations list
-				missing[requiredKey] = ""
+				missing[requiredKey] = "key was not found"
 			} else {
 				if matched := matchFunc(existingVal); !matched {
-					missing[requiredKey] = ""
+					missing[requiredKey] = "value did not match"
 				}
 				// Key exists & matchFunc returned OK.
 			}
@@ -292,25 +284,3 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 
 	return nil, true
 }
-
-// func DenyContainersWithMutableTags(ignoredNamespaces []string, allowedTags []string) AdmitFunc {
-// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 		kind := admissionReview.Request.Kind.Kind
-// 		resp := newDefaultDenyResponse()
-//
-//		TODO(matt): Range over Containers in a Pod spec, parse image URL and inspect tags.
-//
-// 		return resp, nil
-// 	}
-// }
-
-// func AddAnnotationsToPods(ignoredNamespaces []string, newAnnotations map[string]string) AdmitFunc {
-// 	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-// 		kind := admissionReview.Request.Kind.Kind
-// 		resp := newDefaultDenyResponse()
-//
-//		TODO(matt): Add annotations to the object's ObjectMeta.
-//
-// 		return resp, nil
-// 	}
-// }
