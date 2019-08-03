@@ -1,9 +1,7 @@
 version: 2.1
 
 jobs:
-  # Base test configuration for Go library tests Each distinct version should
-  # inherit this base, and override (at least) the container image used.
-  "test": &test
+  "test":
     parameters:
       v:
         type: string
@@ -66,7 +64,7 @@ jobs:
           command: >
             go test -v -race ./...
 
-  "build-container": &build-container
+  "build-container":
     docker:
       - image: docker:18
     working_directory: /go/src/github.com/elithrar/admission-control
