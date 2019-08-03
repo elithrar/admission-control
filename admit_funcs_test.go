@@ -1,20 +1,49 @@
 package admissioncontrol
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	admission "k8s.io/api/admission/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
+)
+
+var (
+	testErrAdmissionMismatch = "admission mismatch (kind: %v): got allowed=%t - wanted allowed=%t)"
+	testErrMessageMismatch   = "error message does not match: got %q - expected %q"
 )
 
 type objectTest struct {
-	testName          string
-	cloudProvider     CloudProvider
-	kind              meta.GroupVersionKind
-	rawObject         []byte
-	ignoredNamespaces []string
-	expectedMessage   string
-	shouldAllow       bool
+	testName            string
+	admitFunc           AdmitFunc
+	cloudProvider       CloudProvider
+	requiredAnnotations map[string]func(string) bool
+	kind                meta.GroupVersionKind
+	object              interface{}
+	rawObject           []byte
+	ignoredNamespaces   []string
+	expectedMessage     string
+	shouldAllow         bool
+}
+
+func newTestAdmissionRequest(kind meta.GroupVersionKind, object []byte, expected bool) *admission.AdmissionReview {
+	ar := &admission.AdmissionReview{
+		Request: &admission.AdmissionRequest{
+			Kind: kind,
+			Object: runtime.RawExtension{
+				Raw: object,
+			},
+		},
+		Response: &admission.AdmissionResponse{},
+	}
+
+	return ar
 }
 
 // TestDenyIngress validates that the DenyIngress AdmitFunc correctly rejects
@@ -114,19 +143,19 @@ func TestDenyIngress(t *testing.T) {
 			resp, err := DenyIngresses(tt.ignoredNamespaces)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
-					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
 				}
 
 				if tt.shouldAllow {
-					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				}
 
-				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				return
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
@@ -307,20 +336,277 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			resp, err := DenyPublicLoadBalancers(tt.ignoredNamespaces, tt.cloudProvider)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
-					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
 				}
 
 				if tt.shouldAllow {
-					t.Fatalf("incorrectly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				}
 
-				t.Logf("correctly rejected admission for %s (kind: %v): %s", tt.testName, tt.kind, err.Error())
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
 				return
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
+}
+
+func TestEnforcePodAnnotations(t *testing.T) {
+	var denyTests = []objectTest{
+		{
+			testName: "Allow Pod with required annotations",
+			requiredAnnotations: map[string]func(string) bool{
+				"questionable.services/hostname": func(s string) bool { return true },
+				"buildVersion":                   func(s string) bool { return strings.HasPrefix(s, "v") },
+			},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject Pod with missing annotations",
+			requiredAnnotations: map[string]func(string) bool{
+				"questionable.services/hostname": func(s string) bool { return true },
+			},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			// missing the "hostname" annotation
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[questionable.services/hostname:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Reject Pod with invalid annotation value",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			// buildVersion is missing the "v" in the version number
+			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"buildVersion":"1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:value did not match]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow admission to a whitelisted namespace",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			ignoredNamespaces: []string{"istio-system"},
+			object: &corev1.Pod{
+				TypeMeta:   meta.TypeMeta{Kind: "Pod", APIVersion: "v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "istio-system"},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}},
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Unhandled Kinds (Service) are correctly rejected",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Service","apiVersion":"v1","metadata":{"name":"hello-service","namespace":"default","annotations":{}},"spec":{"ports":[{"protocol":"TCP","port":8000,"targetPort":8080,"nodePort":31433}],"selector":{"app":"hello-app"},"type":"LoadBalancer","externalTrafficPolicy":"Cluster"}}`),
+			expectedMessage: fmt.Sprintf("%s %s", unsupportedKindError, "Service"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow correctly annotated Pods in a Deployment",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			object: &appsv1.Deployment{
+				TypeMeta:   meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default"},
+				Spec:       appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Annotations: map[string]string{"buildVersion": "v1.0.0"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a Deployment",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			object: &appsv1.Deployment{
+				TypeMeta:   meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default"},
+				Spec:       appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow correctly annotated Pods in a DaemonSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "DaemonSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"DaemonSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-daemonset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a DaemonSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "DaemonSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"DaemonSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-daemonset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow correctly annotated Pods in a StatefulSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "StatefulSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"StatefulSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-statefulset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a StatefulSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "StatefulSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"StatefulSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-statefulset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow correctly annotated Pods in a Job",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "batch",
+				Kind:    "Job",
+				Version: "v1",
+			},
+			object: &batchv1.Job{
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
+				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
+				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Annotations: map[string]string{"buildVersion": "v1.0.0"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a Job",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "batch",
+				Kind:    "Job",
+				Version: "v1",
+			},
+			object: &batchv1.Job{
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
+				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
+				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Name: ""}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Reject cases where the outer object is annotated, but the PodTemplateSpec is not",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			object: &appsv1.Deployment{
+				TypeMeta: meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default", Annotations: map[string]string{
+					"buildVersion": "v1.0.0",
+				}},
+				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Name: ""}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+	}
+
+	for _, tt := range denyTests {
+		t.Run(tt.testName, func(t *testing.T) {
+			incomingReview := admission.AdmissionReview{
+				Request: &admission.AdmissionRequest{},
+			}
+
+			incomingReview.Request.Kind = tt.kind
+
+			if tt.rawObject == nil {
+				serialized, err := json.Marshal(tt.object)
+				if err != nil {
+					t.Fatalf("could not marshal k8s API object: %v", err)
+				}
+
+				incomingReview.Request.Object.Raw = serialized
+			} else {
+				incomingReview.Request.Object.Raw = tt.rawObject
+			}
+
+			resp, err := EnforcePodAnnotations(tt.ignoredNamespaces, tt.requiredAnnotations)(&incomingReview)
+			if err != nil {
+				if tt.expectedMessage != err.Error() {
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
+				}
+
+				if tt.shouldAllow {
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
+				}
+
+				t.Logf("correctly rejected admission for Kind: %v: %s", tt.kind, err.Error())
+				return
+			}
+
+			if resp.Allowed != tt.shouldAllow {
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
+			}
+		})
+	}
+
 }

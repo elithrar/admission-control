@@ -1,14 +1,7 @@
 version: 2.1
 
 jobs:
-  # Base test configuration for Go library tests Each distinct version should
-  # inherit this base, and override (at least) the container image used.
-  "test": &test
-    docker:
-      - image: "circleci/golang:<< parameters.v >>"
-    working_directory: /go/src/github.com/elithrar/admission-control
-    environment:
-      GO111MODULE: "on"
+  "test":
     parameters:
       v:
         type: string
@@ -22,6 +15,15 @@ jobs:
       modules:
         type: boolean
         default: true
+      goproxy:
+        type: string
+        default: ""
+    docker:
+      - image: "circleci/golang:<< parameters.v >>"
+    working_directory: /go/src/github.com/elithrar/admission-control
+    environment:
+      GO111MODULE: "on"
+      GOPROXY: "<< parameters.goproxy >>"
     steps:
       - checkout
       - run:
@@ -62,7 +64,7 @@ jobs:
           command: >
             go test -v -race ./...
 
-  "build-container": &build-container
+  "build-container":
     docker:
       - image: docker:18
     working_directory: /go/src/github.com/elithrar/admission-control
@@ -88,6 +90,4 @@ workflows:
       - test:
           name: "v1.12"
           v: "1.12"
-      - "build-container":
-          requires:
-            - "latest"
+      - "build-container"

@@ -16,7 +16,8 @@ import (
 	log "github.com/go-kit/kit/log"
 )
 
-// AdmitFunc checks whether an admission request is valid, and should return an
+// AdmitFunc is a type for building Kubernetes admission webhooks. An AdmitFunc
+// should check whether an admission request is valid, and shall return an
 // admission response that sets AdmissionResponse.Allowed to true or false as
 // needed.
 //
@@ -123,11 +124,16 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	}
 
 	if incomingReview.Request == nil {
-		return errors.New("received invalid AdmissionReview")
+		return errors.New("received invalid request: no AdmissionReview was found")
 	}
+
 	reviewResponse, err := ah.AdmitFunc(&incomingReview)
 	if err != nil {
 		return AdmissionError{false, err.Error(), "the AdmitFunc returned an error"}
+	}
+
+	if reviewResponse == nil {
+		return AdmissionError{false, "the AdmitFunc returned an empty AdmissionReview", ""}
 	}
 
 	reviewResponse.UID = incomingReview.Request.UID

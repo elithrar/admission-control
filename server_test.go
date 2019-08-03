@@ -31,14 +31,12 @@ func newTestServer(ctx context.Context, t *testing.T) *testServer {
 	})
 
 	testSrv := httptest.NewUnstartedServer(testHandler)
+	testSrv.Start()
 	// We start the test server, copy its config out, and close it down so we can
-	// start our own server. This is because httptest.Server only generates a
-	// self-signed TLS config after starting it.
-	testSrv.StartTLS()
+	// start our own server.
 	srv := &http.Server{
-		Addr:      testSrv.Listener.Addr().String(),
-		Handler:   testHandler,
-		TLSConfig: testSrv.TLS.Clone(),
+		Addr:    testSrv.Listener.Addr().String(),
+		Handler: testHandler,
 	}
 
 	admissionServer, err := NewServer(srv, &noopLogger{})
@@ -87,8 +85,24 @@ func newTestServer(ctx context.Context, t *testing.T) *testServer {
 }
 
 // Test that we can start a minimal AdmissionServer and handle a request.
-func TestRun(t *testing.T) {
-	t.Run("Server accepts HTTP requests", func(t *testing.T) {
+func TestAdmissionServer(t *testing.T) {
+	t.Run("AdmissionServer should return an error w/o a *http.Server", func(t *testing.T) {
+		_, err := NewServer(nil, &noopLogger{})
+		if err == nil {
+			t.Fatalf("nil *http.Server did not return an error")
+		}
+
+	})
+
+	t.Run("AdmissionServer should return an error w/o a log.Logger", func(t *testing.T) {
+		_, err := NewServer(&http.Server{}, nil)
+		if err == nil {
+			t.Fatalf("nil log.Logger did not return an error")
+		}
+
+	})
+
+	t.Run("AdmissionServer starts & accepts HTTP requests", func(t *testing.T) {
 		testSrv := newTestServer(context.TODO(), t)
 		defer testSrv.srv.Stop()
 		client := testSrv.client
@@ -107,7 +121,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("Stop stops the server", func(t *testing.T) {
+	t.Run("AdmissionServer.Stop() stops the server", func(t *testing.T) {
 		testSrv := newTestServer(context.TODO(), t)
 		testSrv.srv.GracePeriod = time.Microsecond * 1
 
@@ -121,6 +135,23 @@ func TestRun(t *testing.T) {
 				http.ErrServerClosed,
 			)
 		}
-
 	})
+
+	t.Run("AdmissionServer handles a cancellation context and shuts down.", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		testSrv := newTestServer(ctx, t)
+		testSrv.srv.GracePeriod = time.Microsecond * 1
+
+		// Cancel the context
+		cancel()
+		time.Sleep(testSrv.srv.GracePeriod + time.Second)
+		if err := testSrv.srv.srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
+			t.Fatalf(
+				"server did not shutdown after a cancellation signal was received: got %v (want %v)",
+				err,
+				http.ErrServerClosed,
+			)
+		}
+	})
+
 }

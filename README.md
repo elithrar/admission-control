@@ -24,12 +24,27 @@ A micro-framework for building Kubernetes [Admission Controllers](https://kubern
 
 ### Built-In AdmitFuncs
 
-Admission Control provides a number of useful built-in _AdmitFuncs_, including:
+Admission Control provides a number of useful built-in [**AdmitFuncs**](https://godoc.org/github.com/elithrar/admission-control#AdmitFunc), including:
 
-- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster; instead requiring the LB to be annotated as internal-only.
-- `DenyIngresses` - similar to the above, it prevents creating Ingresses (except in the namespaces you allow)
+- `EnforcePodAnnotations` - ensures that admitted Pods have (at least) the
+  required set of annotations. Annotation _values_ are matched using a
+  `matchFunc` (a `func(string) bool`) that allows flexible matching. For
+  example, a matchFunc could wrap the
+  [`IsDomainName`](https://godoc.org/github.com/miekg/dns#IsDomainName)
+  function from `miekg/dns`, or reference a `[]string` of accepted values. It
+  is strongly suggested you use a
+  [`namespaceSelector`](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.13/#webhook-v1beta1-admissionregistration)
+  as part of your webhook configuration to only apply this to specific
+  namespaces, and/or set the `ignoreNamespaces` argument to include
+  `kube-system`, as annotation validation will otherwise include system Pods.
+- `DenyPublicLoadBalancers` - prevents exposing `Services` of `type: LoadBalancer` outside of the cluster, instead requiring the LB to be
+  annotated as internal-only, by looking for the well-known annotations for
+  major cloud providers.
+- `DenyIngresses` - similar to the above, it prevents creating Ingresses
+  (except in the namespaces you allow). This can be useful for limiting which
+  namespaces can expose services via common Ingress types.
 
-More built-ins are coming soon! ⏳
+More built-ins are coming soon, and suggestions are welcome! ⏳
 
 ### Creating Your Own AdmitFunc
 
@@ -48,16 +63,42 @@ An example `AdmitFunc` looks like this:
 func DenyDefaultLoadBalancerSourceRanges() AdmitFunc {
     // Return a function of type AdmitFunc
     return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
-        // do work
+        kind := admissionReview.Request.Kind.Kind
+        // Create an *admission.AdmissionResponse that denies by default.
+        resp := newDefaultDenyResponse()
 
-        // returning a non-nil AdmissionResponse and a nil error will allow admission.
+        // Create an object to deserialize our requests' object into
+        service := core.Service{}
+        deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+        if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, &service); err != nil {
+          return nil, err
+        }
 
-        // returning an error will deny Admission; the error string will be
-        // provided to the client and should be clear about why we rejected
-        // them.
+        // Allow non-LoadBalancer Services to pass through.
+        if service.Spec.Type != "LoadBalancer" {
+          resp.Allowed = true
+          resp.Result.Message = fmt.Sprintf(
+            "received a non-LoadBalancer type (%s)",
+            service.Spec.Type,
+          )
+          return resp, nil
+        }
+
+        // Inspect the service.Spec.LoadBalancerSourceRanges field
+        // If unset, reject it.
+        // Returning an error from an AdmitFunc will automatically deny admission of that requests' object.
+        if service.Spec.LoadBalancerSourceRanges == nil {
+          return resp, fmt.Errorf("LoadBalancers without explicitly configured LoadBalancerSourceRanges are not allowed.")
+        }
+
+        // Set resp.Allowed to true before returning your AdmissionResponse
+        resp.Allowed = true
+        return resp, nil
     }
 }
 ```
+
+You can see that we deserialize the raw object in our `AdmissionReview` into an object (based on its Kind), inspect and validate the fields we're interested in, and either return an error (rejecting admission) or set `resp.Allowed = true` and allow admission.
 
 Tips:
 

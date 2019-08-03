@@ -2,6 +2,7 @@ package admissioncontrol
 
 import (
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	log "github.com/go-kit/kit/log"
@@ -39,6 +40,16 @@ func (rw *responseWriter) WriteHeader(code int) {
 func LoggingMiddleware(logger log.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if err := recover(); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					logger.Log(
+						"err", err,
+						"trace", debug.Stack(),
+					)
+				}
+			}()
+
 			start := time.Now()
 			wrapped := wrapResponseWriter(w)
 			next.ServeHTTP(wrapped, r)

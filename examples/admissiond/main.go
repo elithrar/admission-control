@@ -72,6 +72,14 @@ func main() {
 		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.AWS),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
+	admissions.Handle("/enforce-pod-annotations", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.EnforcePodAnnotations(
+			[]string{"kube-system"},
+			map[string]func(string) bool{
+				"k8s.questionable.services/hostname": func(string) bool { return true },
+			}),
+		Logger: logger,
+	}).Methods(http.MethodPost)
 
 	// HTTP server
 	timeout := time.Second * 15
