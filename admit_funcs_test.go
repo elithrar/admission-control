@@ -1,11 +1,14 @@
 package admissioncontrol
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	admission "k8s.io/api/admission/v1beta1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -16,6 +19,7 @@ type objectTest struct {
 	cloudProvider       CloudProvider
 	requiredAnnotations map[string]func(string) bool
 	kind                meta.GroupVersionKind
+	object              interface{}
 	rawObject           []byte
 	ignoredNamespaces   []string
 	expectedMessage     string
@@ -345,8 +349,6 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 }
 
 func TestEnforcePodAnnotations(t *testing.T) {
-	var unsupportedKindError = "the submitted Kind is not supported by this admission handler:"
-	var podDeniedError = "the submitted Pod is missing required annotations:"
 	var denyTests = []objectTest{
 		{
 			testName: "Allow Pod with required annotations",
@@ -360,7 +362,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
-			expectedMessage: podDeniedError,
+			expectedMessage: "",
 			shouldAllow:     true,
 		},
 		{
@@ -403,30 +405,32 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			expectedMessage: fmt.Sprintf("%s %s", unsupportedKindError, "Service"),
 			shouldAllow:     false,
 		},
-		// {
-		// 	testName: "Allow correctly annotated Pods in a Deployment",
-		// 	requiredAnnotations: map[string]func(string) bool{
-		// 		"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "apps",
-		// 		Kind:    "Deployment",
-		// 		Version: "v1",
-		// 	},
-		// 	expectedMessage: "",
-		// 	shouldAllow:     true,
-		// },
-		// {
-		// 	testName: "Reject unannotated Pods in a Deployment",
-		// 	requiredAnnotations: map[string]func(string) bool{
-		// 		"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "apps",
-		// 		Kind:    "Deployment",
-		// 		Version: "v1",
-		// 	},
-		// 	expectedMessage: "",
-		// 	shouldAllow:     false,
-		// },
+		{
+			testName: "Allow correctly annotated Pods in a Deployment",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Deployment","apiVersion":"v1","group":"apps","metadata":{"name":"hello-deploy","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a Deployment",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"Deployment","apiVersion":"v1","group":"apps","metadata":{"name":"hello-deploy","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
 		{
 			testName: "Allow correctly annotated Pods in a DaemonSet",
 			requiredAnnotations: map[string]func(string) bool{
@@ -450,41 +454,69 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Version: "v1",
 			},
 			rawObject:       []byte(`{"kind":"DaemonSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-daemonset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
-			expectedMessage: "the submitted DaemonSet is missing required annotations: map[buildVersion:key was not found]",
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
 			shouldAllow:     false,
 		},
-		// {
-		// 	testName: "Allow correctly annotated Pods in a StatefulSet",
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "apps",
-		// 		Kind:    "StatefulSet",
-		// 		Version: "v1",
-		// 	},
-		// },
-		// {
-		// 	testName: "Reject unannotated Pods in a StatefulSet",
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "apps",
-		// 		Kind:    "StatefulSet",
-		// 		Version: "v1",
-		// 	},
-		// },
-		// {
-		// 	testName: "Allow correctly annotated Pods in a Job",
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "batch",
-		// 		Kind:    "Job",
-		// 		Version: "v1",
-		// 	},
-		// },
-		// {
-		// 	testName: "Reject unannotated Pods in a Job",
-		// 	kind: meta.GroupVersionKind{
-		// 		Group:   "batch",
-		// 		Kind:    "Job",
-		// 		Version: "v1",
-		// 	},
-		// },
+		{
+			testName: "Allow correctly annotated Pods in a StatefulSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "StatefulSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"StatefulSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-statefulset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a StatefulSet",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "StatefulSet",
+				Version: "v1",
+			},
+			rawObject:       []byte(`{"kind":"StatefulSet","apiVersion":"v1","group":"apps","metadata":{"name":"hello-statefulset","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Allow correctly annotated Pods in a Job",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "batch",
+				Kind:    "Job",
+				Version: "v1",
+			},
+			object: &batchv1.Job{
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "v1"},
+				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
+				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Annotations: map[string]string{"buildVersion": "v1.0.0"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
+			testName: "Reject unannotated Pods in a Job",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "batch",
+				Kind:    "Job",
+				Version: "v1",
+			},
+			object: &batchv1.Job{
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "v1"},
+				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
+				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Name: ""}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
 	}
 
 	for _, tt := range denyTests {
@@ -492,8 +524,19 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			incomingReview := admission.AdmissionReview{
 				Request: &admission.AdmissionRequest{},
 			}
+
 			incomingReview.Request.Kind = tt.kind
-			incomingReview.Request.Object.Raw = tt.rawObject
+
+			if tt.rawObject == nil {
+				serialized, err := json.Marshal(tt.object)
+				if err != nil {
+					t.Fatalf("could not marshal k8s API object: %v", err)
+				}
+
+				incomingReview.Request.Object.Raw = serialized
+			} else {
+				incomingReview.Request.Object.Raw = tt.rawObject
+			}
 
 			resp, err := EnforcePodAnnotations(tt.ignoredNamespaces, tt.requiredAnnotations)(&incomingReview)
 			if err != nil {

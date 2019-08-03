@@ -14,6 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
 
+var (
+	podDeniedError       = "the submitted Pods are missing required annotations:"
+	unsupportedKindError = "the submitted Kind is not supported by this admission handler:"
+)
+
 // CloudProvider represents supported cloud platforms for provider-specific
 // configuration.
 type CloudProvider int
@@ -247,7 +252,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		}
 
 		if len(missing) > 0 {
-			return resp, fmt.Errorf("the submitted %s is missing required annotations: %v", kind, missing)
+			return resp, fmt.Errorf("%s %v", podDeniedError, missing)
 		}
 
 		// No missing or invalid annotations; allow admission
