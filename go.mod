@@ -26,10 +26,10 @@ require (
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
 	golang.org/x/net v0.0.0-20190724013045-ca1201d0de80 // indirect
 	golang.org/x/sys v0.0.0-20190801041406-cbf593c0f2f3 // indirect
-	golang.org/x/tools v0.0.0-20190731214159-1e85ed8060aa // indirect
+	golang.org/x/tools v0.0.0-20190802220118-1d1727260058 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.0.0-20190731142925-739c7f7721ed
-	k8s.io/apimachinery v0.0.0-20190731142807-035e418f1ad9
+	k8s.io/api v0.0.0-20190802060718-d0d4f3afa3ab
+	k8s.io/apimachinery v0.0.0-20190802060556-6fa4771c83b3
 	k8s.io/gengo v0.0.0-20190327210449-e17681d19d3a // indirect
 	k8s.io/klog v0.3.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20190722073852-5e22f3d471e6 // indirect
