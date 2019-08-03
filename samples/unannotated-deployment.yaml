@@ -12,7 +12,10 @@ spec:
   template:
     metadata:
       annotations:
+        # invalid annotation
         "k8s.questionable.services/id": "abc"
+        # valid annotation
+        # "k8s.questionable.services/hostname": "abc.example.com"
       labels:
         app: hello-app
     spec:
