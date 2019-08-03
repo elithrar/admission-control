@@ -90,6 +90,4 @@ workflows:
       - test:
           name: "v1.12"
           v: "1.12"
-      - "build-container":
-          requires:
-            - "latest"
+      - "build-container"
