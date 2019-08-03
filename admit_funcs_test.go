@@ -7,10 +7,16 @@ import (
 	"testing"
 
 	admission "k8s.io/api/admission/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+)
+
+var (
+	testErrAdmissionMismatch = "admission mismatch (kind: %v): got allowed=%t - wanted allowed=%t)"
+	testErrMessageMismatch   = "error message does not match: got %q - expected %q"
 )
 
 type objectTest struct {
@@ -137,7 +143,7 @@ func TestDenyIngress(t *testing.T) {
 			resp, err := DenyIngresses(tt.ignoredNamespaces)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
-					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
 				}
 
 				if tt.shouldAllow {
@@ -149,7 +155,7 @@ func TestDenyIngress(t *testing.T) {
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
@@ -330,7 +336,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			resp, err := DenyPublicLoadBalancers(tt.ignoredNamespaces, tt.cloudProvider)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
-					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
 				}
 
 				if tt.shouldAllow {
@@ -342,7 +348,7 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
@@ -395,6 +401,24 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			shouldAllow:     false,
 		},
 		{
+			testName: "Allow admission to a whitelisted namespace",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			ignoredNamespaces: []string{"istio-system"},
+			object: &corev1.Pod{
+				TypeMeta:   meta.TypeMeta{Kind: "Pod", APIVersion: "v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "istio-system"},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}},
+			},
+			expectedMessage: "",
+			shouldAllow:     true,
+		},
+		{
 			testName: "Unhandled Kinds (Service) are correctly rejected",
 			kind: meta.GroupVersionKind{
 				Group:   "",
@@ -414,7 +438,11 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Kind:    "Deployment",
 				Version: "v1",
 			},
-			rawObject:       []byte(`{"kind":"Deployment","apiVersion":"v1","group":"apps","metadata":{"name":"hello-deploy","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{"buildVersion":"v1.0.0"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			object: &appsv1.Deployment{
+				TypeMeta:   meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default"},
+				Spec:       appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Annotations: map[string]string{"buildVersion": "v1.0.0"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
 			expectedMessage: "",
 			shouldAllow:     true,
 		},
@@ -427,7 +455,11 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Kind:    "Deployment",
 				Version: "v1",
 			},
-			rawObject:       []byte(`{"kind":"Deployment","apiVersion":"v1","group":"apps","metadata":{"name":"hello-deploy","namespace":"default","annotations":{}},"spec":{"template":{"metadata":{"annotations":{}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}}}`),
+			object: &appsv1.Deployment{
+				TypeMeta:   meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default"},
+				Spec:       appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
 			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
 			shouldAllow:     false,
 		},
@@ -493,7 +525,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Version: "v1",
 			},
 			object: &batchv1.Job{
-				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "v1"},
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
 				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
 				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Annotations: map[string]string{"buildVersion": "v1.0.0"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
 			},
@@ -510,9 +542,28 @@ func TestEnforcePodAnnotations(t *testing.T) {
 				Version: "v1",
 			},
 			object: &batchv1.Job{
-				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "v1"},
+				TypeMeta:   meta.TypeMeta{Kind: "Job", APIVersion: "batch/v1"},
 				ObjectMeta: meta.ObjectMeta{Name: "", Namespace: "default"},
 				Spec:       batchv1.JobSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Name: ""}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
+			},
+			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
+			shouldAllow:     false,
+		},
+		{
+			testName: "Reject cases where the outer object is annotated, but the PodTemplateSpec is not",
+			requiredAnnotations: map[string]func(string) bool{
+				"buildVersion": func(s string) bool { return strings.HasPrefix(s, "v") }},
+			kind: meta.GroupVersionKind{
+				Group:   "apps",
+				Kind:    "Deployment",
+				Version: "v1",
+			},
+			object: &appsv1.Deployment{
+				TypeMeta: meta.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+				ObjectMeta: meta.ObjectMeta{Namespace: "default", Annotations: map[string]string{
+					"buildVersion": "v1.0.0",
+				}},
+				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: meta.ObjectMeta{Name: ""}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx", Image: "nginx:latest"}}}}},
 			},
 			expectedMessage: fmt.Sprintf("%s %s", podDeniedError, "map[buildVersion:key was not found]"),
 			shouldAllow:     false,
@@ -541,7 +592,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			resp, err := EnforcePodAnnotations(tt.ignoredNamespaces, tt.requiredAnnotations)(&incomingReview)
 			if err != nil {
 				if tt.expectedMessage != err.Error() {
-					t.Fatalf("error message does not match: got %q - expected %q", err.Error(), tt.expectedMessage)
+					t.Fatalf(testErrMessageMismatch, err.Error(), tt.expectedMessage)
 				}
 
 				if tt.shouldAllow {
@@ -553,7 +604,7 @@ func TestEnforcePodAnnotations(t *testing.T) {
 			}
 
 			if resp.Allowed != tt.shouldAllow {
-				t.Fatalf("admission mismatch for (kind: %v): got Allowed: %t, wanted %t", tt.kind, resp.Allowed, tt.shouldAllow)
+				t.Fatalf(testErrAdmissionMismatch, tt.kind, resp.Allowed, tt.shouldAllow)
 			}
 		})
 	}
