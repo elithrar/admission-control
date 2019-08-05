@@ -126,7 +126,7 @@ The example server [`admissiond`](https://github.com/elithrar/admission-control/
 There are two ways to deploy an admission controller:
 
 1. Within your Kubernetes cluster ("in-cluster"), where it runs as a Pod and is exposed as a Service to the rest of the cluster. This requires you to provision a TLS keypair, as admission controllers can only be accessed over TLS (HTTPS).
-2. Out-of-cluster, where it is accessible over HTTPS by the cluster. The admission controller could be hosted on another cluster, or more commonly, via a serverless platform like [Cloud Run](https://cloud.google.com/run/) or [Azure Container Instances](https://azure.microsoft.com/en-us/services/container-instances/).
+2. Out-of-cluster, where it is accessible over HTTPS by the cluster. The admission controller could be hosted on another cluster, or more commonly, via a serverless platform like [Cloud Run](https://cloud.google.com/run/) or [Azure Container Instances](https://azure.microsoft.com/en-us/services/container-instances/). See the [`CloudRun.Dockerfile`](CloudRun.Dockerfile) for an example of how to build an image for Cloud Run.
 
 The documentation below covers deploying within a Kubernetes cluster (option 1).
 
