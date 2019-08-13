@@ -1,6 +1,7 @@
 package admissioncontrol
 
 import (
+	"encoding/json"
 	"fmt"
 
 	admission "k8s.io/api/admission/v1beta1"
@@ -43,6 +44,42 @@ var ilbAnnotations = map[CloudProvider]map[string]string{
 	Azure:     {"service.beta.kubernetes.io/azure-load-balancer-internal": "true"},
 	AWS:       {"service.beta.kubernetes.io/aws-load-balancer-internal": "0.0.0.0/0"},
 	OpenStack: {"service.beta.kubernetes.io/openstack-internal-load-balancer": "true"},
+}
+
+type patchOperation struct {
+	Op    string      `json:"op"`
+	Path  string      `json:"path"`
+	Value interface{} `json:"value,omitempty"`
+}
+
+// AddMutatingPatch serializes a patch for use in a Kubernetes AdmissionResponse, as
+// the target of a mutating admission control webhook.
+//
+// The "op" and "path" arguments are per the JSONPatch (http://jsonpatch.com/)
+// spec, as required by Kubernetes.
+//
+//
+// The returned AdmissionResponse will append the patch to any existing patches,
+// or return an error if the patch could not be serialized.
+func AddMutatingPatch(admissionResponse *admission.AdmissionResponse, op string, path string, value interface{}) (*admission.AdmissionResponse, error) {
+	// We can't directly assign a *admission.PatchTypeJSONPatch.
+	getPatchType := func() *admission.PatchType { pt := admission.PatchTypeJSONPatch; return &pt }
+	admissionResponse.PatchType = getPatchType()
+
+	patch := &patchOperation{
+		Op:    op,
+		Path:  path,
+		Value: value,
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("could not create the patch: %v", err)
+	}
+
+	admissionResponse.Patch = append(admissionResponse.Patch, patchBytes)
+
+	return admissionResponse, nil
 }
 
 // newDefaultDenyResponse returns an AdmissionResponse with a Result sub-object,
@@ -173,8 +210,16 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 
 		// We handle all built-in Kinds that include a PodTemplateSpec, as described here:
 		// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#pod-v1-core
-		var namespace string
-		annotations := make(map[string]string)
+		var (
+			namespace   string
+			annotations = make(map[string]string)
+		)
+
+		podTemplateSpec, err := getPodTemplateSpec(deserializer, kind, admissionReview.Request.Object.Raw)
+		if err != nil {
+			return nil, fmt.Errorf("could not get the PodTemplateSpec from the given object: %v", err)
+		}
+
 		// Extract the necessary metadata from our known Kinds
 		switch kind {
 		case "Pod":
@@ -288,4 +333,13 @@ func ensureHasAnnotations(required map[string]string, annotations map[string]str
 	}
 
 	return nil, true
+}
+
+// getPodTemplateSpec returns a corev1.PodTemplateSpec from built-in Kinds that
+// wrap a PodTemplateSpec: Deployments, DaemonSets, StatefulSets & Jobs.
+//
+// It returns an error if the decoded Kind is unknown.
+func getPodTemplateSpec(deserializer runtime.Decoder, kind string, rawObject []byte) (*core.PodTemplateSpec, error) {
+
+	return nil, nil
 }
