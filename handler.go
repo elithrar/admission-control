@@ -2,8 +2,8 @@ package admissioncontrol
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -124,7 +124,7 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	}
 
 	if incomingReview.Request == nil {
-		return errors.New("received invalid request: no AdmissionReview was found")
+		return xerrors.New("received invalid request: no AdmissionReview was found")
 	}
 
 	reviewResponse, err := ah.AdmitFunc(&incomingReview)
