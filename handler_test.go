@@ -27,6 +27,7 @@ func newTestAdmitFunc(allowed bool, returnError bool) AdmitFunc {
 }
 
 func TestAdmissionHandler(t *testing.T) {
+	t.Parallel()
 	var handlerTests = []struct {
 		testName       string
 		admitFunc      AdmitFunc
