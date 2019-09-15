@@ -87,6 +87,7 @@ func newTestServer(ctx context.Context, t *testing.T) *testServer {
 // Test that we can start a minimal AdmissionServer and handle a request.
 func TestAdmissionServer(t *testing.T) {
 	t.Run("AdmissionServer should return an error w/o a *http.Server", func(t *testing.T) {
+		t.Parallel()
 		_, err := NewServer(nil, &noopLogger{})
 		if err == nil {
 			t.Fatalf("nil *http.Server did not return an error")
@@ -95,6 +96,7 @@ func TestAdmissionServer(t *testing.T) {
 	})
 
 	t.Run("AdmissionServer should return an error w/o a log.Logger", func(t *testing.T) {
+		t.Parallel()
 		_, err := NewServer(&http.Server{}, nil)
 		if err == nil {
 			t.Fatalf("nil log.Logger did not return an error")
@@ -103,6 +105,7 @@ func TestAdmissionServer(t *testing.T) {
 	})
 
 	t.Run("AdmissionServer starts & accepts HTTP requests", func(t *testing.T) {
+		t.Parallel()
 		testSrv := newTestServer(context.TODO(), t)
 		defer testSrv.srv.Stop()
 		client := testSrv.client
@@ -122,6 +125,7 @@ func TestAdmissionServer(t *testing.T) {
 	})
 
 	t.Run("AdmissionServer.Stop() stops the server", func(t *testing.T) {
+		t.Parallel()
 		testSrv := newTestServer(context.TODO(), t)
 		testSrv.srv.GracePeriod = time.Microsecond * 1
 
@@ -138,6 +142,7 @@ func TestAdmissionServer(t *testing.T) {
 	})
 
 	t.Run("AdmissionServer handles a cancellation context and shuts down.", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		testSrv := newTestServer(ctx, t)
 		testSrv.srv.GracePeriod = time.Microsecond * 1

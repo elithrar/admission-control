@@ -49,6 +49,8 @@ func newTestAdmissionRequest(kind meta.GroupVersionKind, object []byte, expected
 // TestDenyIngress validates that the DenyIngress AdmitFunc correctly rejects
 // admission of Ingress objects to a cluster.
 func TestDenyIngress(t *testing.T) {
+	t.Parallel()
+
 	var deniedIngressError = "Ingress objects cannot be deployed to this cluster"
 	var denyTests = []objectTest{
 		{
@@ -165,6 +167,8 @@ func TestDenyIngress(t *testing.T) {
 // TestDenyPublicServices checks that the DenyPublicServices AdmitFunc correctly
 // rejects non-internal load balancer admission to a cluster.
 func TestDenyPublicLoadBalancers(t *testing.T) {
+	t.Parallel()
+
 	var missingLBAnnotationsMessage = "Service objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster"
 
 	var denyTests = []objectTest{
@@ -355,6 +359,8 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 }
 
 func TestEnforcePodAnnotations(t *testing.T) {
+	t.Parallel()
+
 	var denyTests = []objectTest{
 		{
 			testName: "Allow Pod with required annotations",

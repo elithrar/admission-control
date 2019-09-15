@@ -2,6 +2,7 @@ package admissioncontrol
 
 import (
 	"fmt"
+	"golang.org/x/xerrors"
 
 	admission "k8s.io/api/admission/v1beta1"
 	apps "k8s.io/api/apps/v1"
@@ -83,7 +84,7 @@ func DenyIngresses(ignoredNamespaces []string) AdmitFunc {
 				}
 			}
 
-			return nil, fmt.Errorf("%s objects cannot be deployed to this cluster", kind)
+			return nil, xerrors.Errorf("%s objects cannot be deployed to this cluster", kind)
 		default:
 			resp.Allowed = true
 			return resp, nil
@@ -135,13 +136,13 @@ func DenyPublicLoadBalancers(ignoredNamespaces []string, provider CloudProvider)
 
 		expectedAnnotations, ok := ilbAnnotations[provider]
 		if !ok {
-			return resp, fmt.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
+			return resp, xerrors.Errorf("internal load balancer annotations for the given provider (%q) are not supported", provider)
 		}
 
 		// TODO(matt): If we're missing any annotations, provide them in the AdmissionResponse so
 		// the user can correct them.
 		if _, ok := ensureHasAnnotations(expectedAnnotations, service.ObjectMeta.Annotations); !ok {
-			return resp, fmt.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
+			return resp, xerrors.Errorf("%s objects of type: LoadBalancer without an internal-only annotation cannot be deployed to this cluster", kind)
 		}
 
 		// No missing or invalid annotations; allow admission
@@ -219,7 +220,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 			annotations = job.Spec.Template.GetAnnotations()
 		default:
 			// TODO(matt): except for whitelisted namespaces
-			return nil, fmt.Errorf("the submitted Kind is not supported by this admission handler: %s", kind)
+			return nil, xerrors.Errorf("the submitted Kind is not supported by this admission handler: %s", kind)
 		}
 
 		// Ignore objects in whitelisted namespaces.
@@ -237,7 +238,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		// value for a key does not match, admission is rejected.
 		for requiredKey, matchFunc := range requiredAnnotations {
 			if matchFunc == nil {
-				return resp, fmt.Errorf("cannot validate annotations (%s) with a nil matchFunc", requiredKey)
+				return resp, xerrors.Errorf("cannot validate annotations (%s) with a nil matchFunc", requiredKey)
 			}
 
 			if existingVal, ok := annotations[requiredKey]; !ok {
@@ -252,7 +253,7 @@ func EnforcePodAnnotations(ignoredNamespaces []string, requiredAnnotations map[s
 		}
 
 		if len(missing) > 0 {
-			return resp, fmt.Errorf("%s %v", podDeniedError, missing)
+			return resp, xerrors.Errorf("%s %v", podDeniedError, missing)
 		}
 
 		// No missing or invalid annotations; allow admission

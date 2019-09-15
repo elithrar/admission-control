@@ -2,8 +2,8 @@ package admissioncontrol
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"golang.org/x/xerrors"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,11 +45,11 @@ func (as *AdmissionServer) shutdown(ctx context.Context, gracePeriod time.Durati
 // only reachable over HTTPS (TLS), whether running in-cluster or externally.
 func NewServer(srv *http.Server, logger log.Logger) (*AdmissionServer, error) {
 	if srv == nil {
-		return nil, errors.New("a non-nil *http.Server must be provided")
+		return nil, xerrors.New("a non-nil *http.Server must be provided")
 	}
 
 	if logger == nil {
-		return nil, errors.New("a non-nil log.Logger must be provided")
+		return nil, xerrors.New("a non-nil log.Logger must be provided")
 	}
 
 	if srv.TLSConfig == nil {
