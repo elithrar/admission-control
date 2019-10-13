@@ -1,4 +1,4 @@
-FROM golang:1.12 as build
+FROM golang:1.13 as build
 
 LABEL repo="https://github.com/elithrar/admission-control"
 ARG GIT_COMMIT=""
