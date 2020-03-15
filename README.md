@@ -5,7 +5,7 @@
 [![GoDoc](https://godoc.org/github.com/elithrar/admission-control?status.svg)](https://godoc.org/github.com/elithrar/admission-control)
 [![CircleCI](https://circleci.com/gh/elithrar/admission-control.svg?style=svg)](https://circleci.com/gh/elithrar/admission-control)
 
-A micro-framework for building Kubernetes [Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/).
+A micro-framework for building and deploying dynamic [Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) for your Kubernetes clusters. It reduces the boilerplate needed to inspect, validate and/or reject the admission of objects to your cluster, allowing you to focus on writing the specific business logic you want to enforce.
 
 - Can be used as the target of both [`ValidatingWebhookConfiguration`]() and
   [`MutatingWebhookConfiguration`]() - handlers can return simple allow/deny
