@@ -88,8 +88,8 @@ workflows:
           v: "latest"
           latest: true
       - test:
-          name: "v1.14
-          v: "1.14
+          name: "v1.14"
+          v: "1.14"
       - test:
           name: "v1.13"
           v: "1.13"
