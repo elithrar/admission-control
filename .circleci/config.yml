@@ -6,9 +6,6 @@ jobs:
       version:
         type: string
         default: "latest"
-      latest:
-        type: boolean
-        default: false
       golint:
         type: boolean
         default: true
@@ -43,20 +40,20 @@ jobs:
       - run:
           name: "Run golint"
           command: >
-            if [ << parameters.latest >> = true ] && [ << parameters.golint >> = true ]; then
+            if [ << parameters.version >> = "latest" ] && [ << parameters.golint >> = true ]; then
               go get -u golang.org/x/lint/golint
               golint ./...
             fi
       - run:
           name: "Run gofmt"
           command: >
-            if [[ << parameters.latest >> = true ]]; then
+            if [[ << parameters.version >> = "latest" ]]; then
               diff -u <(echo -n) <(gofmt -d -e .)
             fi
       - run:
           name: "Run go vet"
           command: >
-            if [[ << parameters.latest >> = true ]]; then
+            if [[ << parameters.version >> = "latest" ]]; then
               go vet -v ./...
             fi
       - run:
@@ -66,7 +63,7 @@ jobs:
 
   "build-container":
     docker:
-      - image: docker:18
+      - image: docker:19
     working_directory: /go/src/github.com/elithrar/admission-control
     steps:
       - checkout
@@ -84,11 +81,7 @@ workflows:
   tests:
     jobs:
       - test:
-          name: "latest"
-          version: "latest"
-          latest: true
-      - test:
           matrix:
             parameters:
-              version: ["1.15", "1.14", "1.13"]
+              version: ["latest", "1.15", "1.14", "1.13"]
       - "build-container"
