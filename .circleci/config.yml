@@ -85,7 +85,7 @@ workflows:
     jobs:
       - test:
           name: "latest"
-          v: "latest"
+          version: "latest"
           latest: true
       - test:
           matrix:
