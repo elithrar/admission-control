@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   "test":
     parameters:
-      v:
+      version:
         type: string
         default: "latest"
       latest:
@@ -19,7 +19,7 @@ jobs:
         type: string
         default: ""
     docker:
-      - image: "circleci/golang:<< parameters.v >>"
+      - image: "circleci/golang:<< parameters.version >>"
     working_directory: /go/src/github.com/elithrar/admission-control
     environment:
       GO111MODULE: "on"
@@ -88,12 +88,7 @@ workflows:
           v: "latest"
           latest: true
       - test:
-          name: "v1.15"
-          v: "1.15"
-      - test:
-          name: "v1.14"
-          v: "1.14"
-      - test:
-          name: "v1.13"
-          v: "1.13"
+          matrix:
+          parameters:
+            version: ["1.15", "1.14", "1.13"]
       - "build-container"
