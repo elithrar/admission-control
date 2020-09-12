@@ -89,6 +89,6 @@ workflows:
           latest: true
       - test:
           matrix:
-          parameters:
-            version: ["1.15", "1.14", "1.13"]
+            parameters:
+              version: ["1.15", "1.14", "1.13"]
       - "build-container"
