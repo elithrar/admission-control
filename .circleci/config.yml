@@ -81,7 +81,7 @@ jobs:
             docker build -t elithrar/admissiond-example .
 
 workflows:
-  build:
+  tests:
     jobs:
       - test:
           name: "latest"
