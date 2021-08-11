@@ -1,4 +1,4 @@
-module github.com/elithrar/admission-control
+module github.com/vendasta/admission-control
 
 go 1.12
 

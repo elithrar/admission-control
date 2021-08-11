@@ -12,8 +12,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	admissioncontrol "github.com/elithrar/admission-control"
 	log "github.com/go-kit/kit/log"
+	admissioncontrol "github.com/vendasta/admission-control"
 )
 
 type conf struct {

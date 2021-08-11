@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go install -v ./...
 
 FROM gcr.io/distroless/base
-COPY --from=build /go/bin/admissiond /
+COPY --from=build /go/bin/server /
 EXPOSE 8443
 
 CMD ["/admissiond", "-cert-path", "certs/cert.crt", "-key-path", "certs/key.key", "-port", "8443"]
