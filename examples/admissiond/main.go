@@ -5,11 +5,12 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/gorilla/mux"
 	stdlog "log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	admissioncontrol "github.com/elithrar/admission-control"
 	log "github.com/go-kit/kit/log"
@@ -65,30 +66,10 @@ func main() {
 
 	// Example admission handler endpoints
 	admissions := r.PathPrefix("/admission-control").Subrouter()
-	admissions.Handle("/deny-ingresses", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyIngresses(nil),
+
+	admissions.Handle("/add-autosclaler-annotation", &admissioncontrol.AdmissionHandler{
+		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation(nil),
 		Logger:    logger,
-	}).Methods(http.MethodPost)
-	admissions.Handle("/deny-public-services/gcp", &admissioncontrol.AdmissionHandler{
-		// nil = don't whitelist any namespace.
-		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.GCP),
-		Logger:    logger,
-	}).Methods(http.MethodPost)
-	admissions.Handle("/deny-public-services/azure", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.Azure),
-		Logger:    logger,
-	}).Methods(http.MethodPost)
-	admissions.Handle("/deny-public-services/aws", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.DenyPublicLoadBalancers(nil, admissioncontrol.AWS),
-		Logger:    logger,
-	}).Methods(http.MethodPost)
-	admissions.Handle("/enforce-pod-annotations", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.EnforcePodAnnotations(
-			[]string{"kube-system"},
-			map[string]func(string) bool{
-				"k8s.questionable.services/hostname": func(string) bool { return true },
-			}),
-		Logger: logger,
 	}).Methods(http.MethodPost)
 
 	// HTTP server
