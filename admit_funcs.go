@@ -1,7 +1,9 @@
 package admissioncontrol
 
 import (
+	"encoding/json"
 	"fmt"
+
 	"golang.org/x/xerrors"
 
 	admission "k8s.io/api/admission/v1beta1"
@@ -35,6 +37,14 @@ const (
 	OpenStack
 )
 
+const clusterAutoScalerAnnotationKey = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+
+type patchOperation struct {
+	Op    string      `json:"op"`
+	Path  string      `json:"path"`
+	Value interface{} `json:"value,omitempty"`
+}
+
 // ilbAnnotations maps the annotation key:value pairs required to denote an
 // internal-only load balancer on the supported cloud platforms.
 //
@@ -53,6 +63,91 @@ func newDefaultDenyResponse() *admission.AdmissionResponse {
 		Allowed: false,
 		Result:  &metav1.Status{},
 	}
+}
+
+// Add autoscaler annotation
+
+func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
+	return func(admissionReview *admission.AdmissionReview) (*admission.AdmissionResponse, error) {
+		kind := admissionReview.Request.Kind.Kind
+		deserializer := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
+		resp := newDefaultDenyResponse()
+
+		var namespace string
+		annotations := make(map[string]string)
+		pod := &core.Pod{}
+
+		switch kind {
+		case "Pod":
+
+			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, pod); err != nil {
+				return nil, err
+			}
+			namespace = pod.GetNamespace()
+			annotations = pod.GetAnnotations()
+		default:
+			return nil, nil
+
+		}
+
+		// Ignore objects in whitelisted namespaces.
+		for _, ns := range ignoredNamespaces {
+			if namespace == ns {
+				resp.Allowed = true
+				resp.Result.Message = fmt.Sprintf("allowing admission: %s namespace is whitelisted", namespace)
+				return resp, nil
+			}
+		}
+
+		// Check for auto scaler key
+		_, ok := annotations[clusterAutoScalerAnnotationKey]
+		if ok {
+			return nil, nil
+		}
+
+		patch, err := GetPatch(pod)
+		if err != nil {
+			return nil, err
+		}
+
+		return &admission.AdmissionResponse{
+			Allowed: true,
+			Patch:   patch,
+			PatchType: func() *admission.PatchType {
+				pt := admission.PatchTypeJSONPatch
+				return &pt
+			}(),
+		}, nil
+
+	}
+}
+
+func GetPatch(pod *core.Pod) ([]byte, error) {
+	var patch []patchOperation
+	patch = append(patch, updateAnnotation(pod.Annotations, map[string]string{clusterAutoScalerAnnotationKey: "true"})...)
+	return json.Marshal(patch)
+}
+
+func updateAnnotation(target map[string]string, added map[string]string) (patch []patchOperation) {
+	for key, value := range added {
+		if target == nil || target[key] == "" {
+			target = map[string]string{}
+			patch = append(patch, patchOperation{
+				Op:   "add",
+				Path: "/metadata/annotations",
+				Value: map[string]string{
+					key: value,
+				},
+			})
+		} else {
+			patch = append(patch, patchOperation{
+				Op:    "replace",
+				Path:  "/metadata/annotations/" + key,
+				Value: value,
+			})
+		}
+	}
+	return patch
 }
 
 // DenyIngresses denies any kind: Ingress from being deployed to the cluster,
