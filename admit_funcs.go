@@ -86,7 +86,9 @@ func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
 			namespace = pod.GetNamespace()
 			annotations = pod.GetAnnotations()
 		default:
-			return nil, nil
+			resp.Allowed = true
+			resp.Result.Message = fmt.Sprintf("object was not a pod, %s", kind)
+			return resp, nil
 
 		}
 
@@ -102,7 +104,9 @@ func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
 		// Check for auto scaler key
 		_, ok := annotations[clusterAutoScalerAnnotationKey]
 		if ok {
-			return nil, nil
+			resp.Allowed = true
+			resp.Result.Message = fmt.Sprintf("object already has auto scaler annotation")
+			return resp, nil
 		}
 
 		patch, err := GetPatch(pod)
@@ -113,6 +117,9 @@ func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
 		return &admission.AdmissionResponse{
 			Allowed: true,
 			Patch:   patch,
+			Result: &metav1.Status{
+				Message: "Updating annotations",
+			},
 			PatchType: func() *admission.PatchType {
 				pt := admission.PatchTypeJSONPatch
 				return &pt
