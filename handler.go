@@ -59,6 +59,8 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outgoingReview := &admission.AdmissionReview{
 		Response: &admission.AdmissionResponse{},
 	}
+	outgoingReview.Kind = "AdmissionReview"
+	outgoingReview.APIVersion = "admission.k8s.io/v1"
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := ah.handleAdmissionRequest(w, r); err != nil {
@@ -75,9 +77,6 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			)
 			outgoingReview.Response.Allowed = admissionErr.Allowed
 		}
-
-		outgoingReview.Kind = "AdmissionReview"
-		outgoingReview.APIVersion = "admission.k8s.io/v1"
 
 		res, err := json.Marshal(outgoingReview)
 		if err != nil {
@@ -144,6 +143,9 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	review := admission.AdmissionReview{
 		Response: reviewResponse,
 	}
+
+	review.Kind = "AdmissionReview"
+	review.APIVersion = "admission.k8s.io/v1"
 
 	res, err := json.Marshal(&review)
 	if err != nil {
