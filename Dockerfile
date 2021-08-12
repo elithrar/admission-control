@@ -17,4 +17,4 @@ FROM gcr.io/distroless/base
 COPY --from=build /go/bin/server /
 EXPOSE 8443
 
-CMD ["/admissiond", "-cert-path", "certs/cert.crt", "-key-path", "certs/key.key", "-port", "8443"]
+CMD ["/server", "-cert-path", "certs/tls.crt", "-key-path", "certs/tls.key", "-port", "8443"]
