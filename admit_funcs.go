@@ -79,7 +79,6 @@ func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
 
 		switch kind {
 		case "Pod":
-
 			if _, _, err := deserializer.Decode(admissionReview.Request.Object.Raw, nil, pod); err != nil {
 				return nil, err
 			}

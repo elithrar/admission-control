@@ -29,8 +29,8 @@ func main() {
 
 	// Get config
 	conf := &conf{}
-	flag.StringVar(&conf.TLSCertPath, "cert-path", "./cert.crt", "The path to the PEM-encoded TLS certificate")
-	flag.StringVar(&conf.TLSKeyPath, "key-path", "./key.key", "The path to the unencrypted TLS key")
+	flag.StringVar(&conf.TLSCertPath, "cert-path", "./tls.crt", "The path to the PEM-encoded TLS certificate")
+	flag.StringVar(&conf.TLSKeyPath, "key-path", "./tls.key", "The path to the unencrypted TLS key")
 	flag.BoolVar(&conf.HTTPOnly, "http-only", false, "Only listen on unencrypted HTTP (e.g. for proxied environments)")
 	flag.StringVar(&conf.Port, "port", "8443", "The port to listen on (HTTPS).")
 	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service")
