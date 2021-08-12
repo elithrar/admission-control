@@ -3,10 +3,11 @@ package admissioncontrol
 import (
 	"encoding/json"
 	"fmt"
-	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"net/http"
+
+	"golang.org/x/xerrors"
 
 	admission "k8s.io/api/admission/v1beta1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,6 +75,9 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			)
 			outgoingReview.Response.Allowed = admissionErr.Allowed
 		}
+
+		outgoingReview.Kind = "AdmissionReview"
+		outgoingReview.APIVersion = "admission.k8s.io/v1"
 
 		res, err := json.Marshal(outgoingReview)
 		if err != nil {
