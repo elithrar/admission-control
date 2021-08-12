@@ -33,7 +33,7 @@ func main() {
 	flag.StringVar(&conf.TLSKeyPath, "key-path", "./tls.key", "The path to the unencrypted TLS key")
 	flag.BoolVar(&conf.HTTPOnly, "http-only", false, "Only listen on unencrypted HTTP (e.g. for proxied environments)")
 	flag.StringVar(&conf.Port, "port", "8443", "The port to listen on (HTTPS).")
-	flag.StringVar(&conf.Host, "host", "admissiond.questionable.services", "The hostname for the service")
+	flag.StringVar(&conf.Host, "host", "admission-control-service.admission-control.svc", "The hostname for the service")
 	flag.Parse()
 
 	// Set up logging
@@ -68,7 +68,7 @@ func main() {
 	admissions := r.PathPrefix("/admission-control").Subrouter()
 
 	admissions.Handle("/add-autosclaler-annotation", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation(nil),
+		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation([]string{"admission-control"}),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
