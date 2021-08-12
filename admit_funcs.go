@@ -130,20 +130,21 @@ func AddAutoscalerAnnotation(ignoredNamespaces []string) AdmitFunc {
 
 func GetPatch(pod *core.Pod) ([]byte, error) {
 	var patch []patchOperation
-	patch = append(patch, updateAnnotation(pod.Annotations, map[string]string{clusterAutoScalerAnnotationKey: "true"})...)
+	patch = append(patch, updateAnnotation(pod.GetAnnotations(), map[string]string{clusterAutoScalerAnnotationKey: "true"})...)
 	return json.Marshal(patch)
 }
 
 func updateAnnotation(target map[string]string, added map[string]string) (patch []patchOperation) {
 	for key, value := range added {
-		if target == nil || target[key] == "" {
+		if target == nil {
 			target = map[string]string{}
+		}
+		if target[key] == "" {
+			target[key] = value
 			patch = append(patch, patchOperation{
-				Op:   "add",
-				Path: "/metadata/annotations",
-				Value: map[string]string{
-					key: value,
-				},
+				Op:    "add",
+				Path:  "/metadata/annotations",
+				Value: target,
 			})
 		} else {
 			patch = append(patch, patchOperation{
