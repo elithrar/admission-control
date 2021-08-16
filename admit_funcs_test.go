@@ -358,6 +358,86 @@ func TestDenyPublicLoadBalancers(t *testing.T) {
 	}
 }
 
+func TestAddAutoscalerAnnotation(t *testing.T) {
+	t.Parallel()
+
+	var autoscalerTest = []objectTest{
+		{
+			testName: "Add annotation if it does not exist",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:         []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage:   "",
+			shouldAllow:       true,
+			ignoredNamespaces: []string{},
+			object:            "[{\"op\":\"add\",\"path\":\"/metadata/annotations\",\"value\":{\"cluster-autoscaler.kubernetes.io/safe-to-evict\":\"true\"}}]",
+		},
+		{
+			testName: "skip adding annotation if it does exist",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Pod",
+				Version: "v1",
+			},
+			rawObject:         []byte(`{"kind":"Pod","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2", "cluster-autoscaler.kubernetes.io/safe-to-evict":"true"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage:   "",
+			shouldAllow:       true,
+			ignoredNamespaces: []string{},
+			object:            nil,
+		},
+		{
+			testName: "skip if object is not a pod",
+			kind: meta.GroupVersionKind{
+				Group:   "",
+				Kind:    "Service",
+				Version: "v1",
+			},
+			rawObject:         []byte(`{"kind":"Service","apiVersion":"v1","group":"","metadata":{"name":"hello-app","namespace":"default","annotations":{"questionable.services/hostname":"hello-app.questionable.services","buildVersion":"v1.0.2", "cluster-autoscaler.kubernetes.io/safe-to-evict":"true"}},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}`),
+			expectedMessage:   "object was not a pod, Service",
+			shouldAllow:       true,
+			ignoredNamespaces: []string{},
+			object:            nil,
+		},
+	}
+
+	for _, tt := range autoscalerTest {
+		t.Run(tt.testName, func(t *testing.T) {
+
+			incomingReview := admission.AdmissionReview{
+				Request: &admission.AdmissionRequest{},
+			}
+			incomingReview.Request.Kind = tt.kind
+			incomingReview.Request.Object.Raw = tt.rawObject
+
+			resp, err := AddAutoscalerAnnotation(tt.ignoredNamespaces)(&incomingReview)
+			if err != nil {
+				if tt.shouldAllow {
+					t.Fatalf("incorrectly rejected admission for Kind: %v: %s", tt.kind, err.Error())
+				}
+			}
+
+			if resp == nil {
+				t.Fatalf("response should not be nil")
+			}
+
+			if tt.expectedMessage != resp.Result.Message {
+				t.Fatalf("response message does not match expected, %s", resp.Result.Message)
+			}
+
+			if tt.object != nil && resp != nil {
+				if string(resp.Patch) != tt.object {
+					t.Fatalf("Did not get the expected patch, got %s", resp.Patch)
+				}
+			}
+
+		})
+	}
+
+}
+
 func TestEnforcePodAnnotations(t *testing.T) {
 	t.Parallel()
 

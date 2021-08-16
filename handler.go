@@ -3,10 +3,11 @@ package admissioncontrol
 import (
 	"encoding/json"
 	"fmt"
-	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"net/http"
+
+	"golang.org/x/xerrors"
 
 	admission "k8s.io/api/admission/v1beta1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -58,6 +59,8 @@ func (ah *AdmissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outgoingReview := &admission.AdmissionReview{
 		Response: &admission.AdmissionResponse{},
 	}
+	outgoingReview.Kind = "AdmissionReview"
+	outgoingReview.APIVersion = "admission.k8s.io/v1"
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := ah.handleAdmissionRequest(w, r); err != nil {
@@ -140,6 +143,9 @@ func (ah *AdmissionHandler) handleAdmissionRequest(w http.ResponseWriter, r *htt
 	review := admission.AdmissionReview{
 		Response: reviewResponse,
 	}
+
+	review.Kind = "AdmissionReview"
+	review.APIVersion = "admission.k8s.io/v1"
 
 	res, err := json.Marshal(&review)
 	if err != nil {
