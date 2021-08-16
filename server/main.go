@@ -68,7 +68,7 @@ func main() {
 	admissions := r.PathPrefix("/admission-control").Subrouter()
 
 	admissions.Handle("/add-autosclaler-annotation", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation([]string{"admission-control"}),
+		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation(nil),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
