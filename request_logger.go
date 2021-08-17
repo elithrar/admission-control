@@ -46,7 +46,7 @@ func StatsdMiddleware(client *statsd.Client) func(http.Handler) http.Handler {
 			wrapped := wrapResponseWriter(w)
 			next.ServeHTTP(wrapped, r)
 			go func() {
-				client.Histogram("request.latency", float64(time.Since(start).Nanoseconds()), []string{fmt.Sprintf("status:%d", wrapped.status), fmt.Sprintf("path:%s", r.URL.EscapedPath())}, 1)
+				client.Histogram("admission_control.request.latency", float64(time.Since(start).Nanoseconds()), []string{fmt.Sprintf("status:%d", wrapped.status), fmt.Sprintf("path:%s", r.URL.EscapedPath())}, 1)
 			}()
 		}
 
