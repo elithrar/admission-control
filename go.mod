@@ -3,6 +3,8 @@ module github.com/vendasta/admission-control
 go 1.12
 
 require (
+	github.com/DataDog/datadog-go v4.8.1+incompatible
+	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/go-kit/kit v0.10.0
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
