@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/gorilla/mux"
 
 	log "github.com/go-kit/kit/log"
@@ -56,6 +57,21 @@ func main() {
 		}
 	}
 
+	ddAgentAddr := os.Getenv("DD_AGENT_ADDR")
+	if ddAgentAddr == "" {
+		ddAgentAddr = "dd-agent.default.svc.cluster.local:8125"
+	}
+
+	env := os.Getenv("ENVIRONMENT")
+
+	client, err := statsd.New(ddAgentAddr)
+	if err != nil {
+		fatal(logger, err)
+	}
+	tags := []string{fmt.Sprintf("env:%s", env), "service:admission-control", "namespace:admission-control"}
+
+	client.Tags = tags
+
 	// Set up the routes & logging middleware.
 	r := mux.NewRouter().StrictSlash(true)
 	// Show all available routes
@@ -75,7 +91,7 @@ func main() {
 	// HTTP server
 	timeout := time.Second * 15
 	srv := &http.Server{
-		Handler:           admissioncontrol.LoggingMiddleware(logger)(r),
+		Handler:           admissioncontrol.StatsdMiddlewate(client)(admissioncontrol.LoggingMiddleware(logger)(r)),
 		TLSConfig:         tlsConf,
 		Addr:              ":" + conf.Port,
 		IdleTimeout:       timeout,
