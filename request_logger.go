@@ -45,9 +45,7 @@ func StatsdMiddlewate(client *statsd.Client) func(http.Handler) http.Handler {
 			start := time.Now()
 			wrapped := wrapResponseWriter(w)
 			next.ServeHTTP(wrapped, r)
-
-			client.Incr("request", []string{fmt.Sprintf("status:%d", wrapped.status), fmt.Sprintf("path:%s", r.URL.EscapedPath())}, 1)
-			client.Histogram("request_time", float64(time.Since(start).Milliseconds()), []string{fmt.Sprintf("status:%d", wrapped.status)}, 1.0)
+			client.Histogram("request", float64(time.Since(start).Milliseconds()), []string{fmt.Sprintf("status:%d", wrapped.status), fmt.Sprintf("path:%s", r.URL.EscapedPath())}, 1.0)
 		}
 
 		return http.HandlerFunc(fn)
