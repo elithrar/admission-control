@@ -1,10 +1,12 @@
 package admissioncontrol
 
 import (
+	"fmt"
 	"net/http"
 	"runtime/debug"
 	"time"
 
+	"github.com/DataDog/datadog-go/statsd"
 	log "github.com/go-kit/kit/log"
 )
 
@@ -34,6 +36,22 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.wroteHeader = true
 
 	return
+}
+
+func StatsdMiddleware(client *statsd.Client) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+
+			start := time.Now()
+			wrapped := wrapResponseWriter(w)
+			next.ServeHTTP(wrapped, r)
+			go func() {
+				client.Histogram("admission_control.request.latency", float64(time.Since(start).Nanoseconds()), []string{fmt.Sprintf("status:%d", wrapped.status), fmt.Sprintf("path:%s", r.URL.EscapedPath())}, 1)
+			}()
+		}
+
+		return http.HandlerFunc(fn)
+	}
 }
 
 // LoggingMiddleware logs the incoming HTTP request & its duration.
