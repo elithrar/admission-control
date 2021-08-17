@@ -38,7 +38,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	return
 }
 
-func StatsdMiddlewate(client *statsd.Client) func(http.Handler) http.Handler {
+func StatsdMiddleware(client *statsd.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 

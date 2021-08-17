@@ -91,7 +91,7 @@ func main() {
 	// HTTP server
 	timeout := time.Second * 15
 	srv := &http.Server{
-		Handler:           admissioncontrol.StatsdMiddlewate(client)(admissioncontrol.LoggingMiddleware(logger)(r)),
+		Handler:           admissioncontrol.StatsdMiddleware(client)(admissioncontrol.LoggingMiddleware(logger)(r)),
 		TLSConfig:         tlsConf,
 		Addr:              ":" + conf.Port,
 		IdleTimeout:       timeout,
