@@ -84,7 +84,7 @@ func main() {
 	admissions := r.PathPrefix("/admission-control").Subrouter()
 
 	admissions.Handle("/add-autosclaler-annotation", &admissioncontrol.AdmissionHandler{
-		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation(nil),
+		AdmitFunc: admissioncontrol.AddAutoscalerAnnotation([]string{"kube-system"}),
 		Logger:    logger,
 	}).Methods(http.MethodPost)
 
