@@ -19,7 +19,7 @@ A micro-framework for building and deploying dynamic [Admission Controllers](htt
   as additional guidance.
 
 ---
-
+- [Deploying admission controller at vendasta](#deploying-the-admission-controller-at-vendasta)
 - [Using the Framework](#using-the-framework)
 - [Built-In AdmitFuncs](#built-in-admitfuncs)
 - [Creating Your Own AdmitFunc](#creating-your-own-admitfunc)
@@ -34,6 +34,21 @@ A micro-framework for building and deploying dynamic [Admission Controllers](htt
 - [License](#license)
 
 ---
+
+## Deploying the Admission Controller at Vendasta
+
+### Building
+Admission Controller is build using the supplied docker file, from the route of the project run the command, incrementing the version accordingly
+```
+docker build --tag=gcr.io/repcore-prod/admission-control:x.x.x .
+```
+
+Then push the image
+```
+docker push gcr.io/repcore-prod/admission-control:x.x.x
+```
+
+to deploy we use gitops with Argocd, update the image tag in [gitops](https://github.com/vendasta/gitops/tree/master/admission-control) repo
 
 ## Using the Framework
 
